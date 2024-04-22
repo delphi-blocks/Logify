@@ -10,22 +10,19 @@ uses
 
 type
   TOutputDebugLogger = class(TLoggerHelper, ILogger)
-  public
-    procedure Log(const AMsg: string; ALevel: TLogLevel);
-    procedure LogRawLine(const AMsg: string);
+  protected
+    procedure InternalLog(const AMsg: string; ALevel: TLogLevel); override;
+    procedure InternalRaw(const AMsg: string); override;
   end;
 
 implementation
 
-procedure TOutputDebugLogger.Log(const AMsg: string; ALevel: TLogLevel);
+procedure TOutputDebugLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
-  if ALevel < FLevel then
-    Exit;
-
   OutputDebugString(PChar(FormatLog(AMsg, ALevel)));
 end;
 
-procedure TOutputDebugLogger.LogRawLine(const AMsg: string);
+procedure TOutputDebugLogger.InternalRaw(const AMsg: string);
 begin
   OutputDebugString(PChar(AMsg));
 end;

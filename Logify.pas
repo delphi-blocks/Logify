@@ -57,8 +57,10 @@ type
     procedure SetLevel(AValue: TLogLevel);
 
     function FormatLog(const AMsg: string; ALevel: TLogLevel): string;
+    procedure InternalLog(const AMsg: string; ALevel: TLogLevel); virtual; abstract;
+    procedure InternalRaw(const AMsg: string); virtual; abstract;
   public
-    procedure Log(const AMsg: string; ALevel: TLogLevel); virtual; abstract;
+    procedure Log(const AMsg: string; ALevel: TLogLevel);
     procedure LogTrace(const AMsg: string);
     procedure LogDebug(const AMsg: string);
     procedure LogInfo(const AMsg: string);
@@ -67,6 +69,7 @@ type
     procedure LogCritical(const AMsg: string);
     procedure LogException(AException: Exception); overload;
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
+    procedure LogRawLine(const AMsg: string);
   public
     property Level: TLogLevel read GetLevel write SetLevel;
   end;
@@ -366,6 +369,14 @@ begin
   Result := FLevel;
 end;
 
+procedure TLoggerHelper.Log(const AMsg: string; ALevel: TLogLevel);
+begin
+  if ALevel < FLevel then
+    Exit;
+
+  InternalLog(AMsg, ALevel);
+end;
+
 procedure TLoggerHelper.LogCritical(const AMsg: string);
 begin
   Log(AMsg, TLogLevel.Critical);
@@ -394,6 +405,11 @@ end;
 procedure TLoggerHelper.LogInfo(const AMsg: string);
 begin
   Log(AMsg, TLogLevel.Info);
+end;
+
+procedure TLoggerHelper.LogRawLine(const AMsg: string);
+begin
+  InternalRaw(AMsg);
 end;
 
 procedure TLoggerHelper.LogTrace(const AMsg: string);

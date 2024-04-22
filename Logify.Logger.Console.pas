@@ -9,22 +9,19 @@ uses
 
 type
   TConsoleLogger = class(TLoggerHelper, ILogger)
-  public
-    procedure Log(const AMsg: string; ALevel: TLogLevel); override;
-    procedure LogRawLine(const AMsg: string);
+  protected
+    procedure InternalLog(const AMsg: string; ALevel: TLogLevel); override;
+    procedure InternalRaw(const AMsg: string); override;
   end;
 
 implementation
 
-procedure TConsoleLogger.Log(const AMsg: string; ALevel: TLogLevel);
+procedure TConsoleLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
-  if ALevel < FLevel then
-    Exit;
-
   Writeln(FormatLog(AMsg, ALevel));
 end;
 
-procedure TConsoleLogger.LogRawLine(const AMsg: string);
+procedure TConsoleLogger.InternalRaw(const AMsg: string);
 begin
   Writeln(AMsg);
 end;
