@@ -14,6 +14,7 @@ type
   TLogLevel = (Trace, Debug, Info, Warning, Error, Critical);
 
 const
+  DEFAULT_CATEGORY = 'default';
   LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
 
 type
@@ -44,7 +45,6 @@ type
 
   ILoggerFactory = interface(IInterface)
   ['{2D5EE776-AB98-4A1C-88AB-C76339C05D72}']
-    function GetLoggerClass: TClass;
     function CreateLogger: ILogger;
   end;
 
@@ -102,7 +102,8 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    procedure AddFactory(const AName, ACategory: string; AFactory: ILoggerFactory);
+    procedure AddFactory(AFactory: ILoggerFactory); overload;
+    procedure AddFactory(const ACategory: string; AFactory: ILoggerFactory); overload;
     function FindFactory(const AName: string): ILoggerFactory;
     function GetFactory(const AName: string): ILoggerFactory;
 
@@ -113,7 +114,7 @@ type
     class property Instance: TLoggerRegistry read GetInstance;
   end;
 
-  // "default" Logger
+  // "default" Category Logger(s)
   function Logger: ILogger;
 
 implementation
@@ -124,10 +125,13 @@ uses
 type
   TMultiLogger = class(TInterfacedObject, ILogger)
   private
-    FLevel: TlogLevel;
+    FCategory: string;
+    FLevel: TLogLevel;
     function GetLevel: TLogLevel;
     procedure SetLevel(AValue: TLogLevel);
   public
+    constructor Create(const ACategory: string);
+
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
@@ -154,7 +158,7 @@ begin
     _Lock.Acquire;
     try
       if not Assigned(_Logger) then
-        _Logger := TMultiLogger.Create;
+        _Logger := TMultiLogger.Create(DEFAULT_CATEGORY);
     finally
       _Lock.Release;
     end;
@@ -172,6 +176,11 @@ end;
 class destructor TLoggerRegistry.Destroy;
 begin
   FLock.Free;
+end;
+
+procedure TLoggerRegistry.AddFactory(AFactory: ILoggerFactory);
+begin
+  AddFactory(DEFAULT_CATEGORY, AFactory);
 end;
 
 constructor TLoggerRegistry.Create;
@@ -203,30 +212,36 @@ begin
 end;
 
 function TLoggerRegistry.FindFactory(const AName: string): ILoggerFactory;
+var
+  LInfo: FactoryInfo;
 begin
   Result := nil;
-  var info: FactoryInfo;
-  if FRegistry.TryGetValue(AName, info) then
-    Result := info.Factory;
+  if FRegistry.TryGetValue(AName, LInfo) then
+    Result := LInfo.Factory;
 end;
 
 function TLoggerRegistry.FindLogger(const AName: string): ILogger;
+var
+  LReg: TPair<string, LoggerInfo>;
 begin
   Result := nil;
-  for var lg in FLoggers do
-   if lg.Key = AName then
-     Result := lg.Value.Logger;
+  for LReg in FLoggers do
+   if LReg.Key = AName then
+     Result := LReg.Value.Logger;
 end;
 
 function TLoggerRegistry.GetLoggers(const ACategory: string): TArray<ILogger>;
+var
+  LReg: TPair<string, FactoryInfo>;
+  LLogger: ILogger;
 begin
   Result := [];
 
-  for var fact in FRegistry do
-    if fact.Value.Category = ACategory then
+  for LReg in FRegistry do
+    if LReg.Value.Category = ACategory then
     begin
-      var logger := GetOrCreateLogger(fact.Key);
-      Result := Result + [logger];
+      LLogger := GetOrCreateLogger(LReg.Key);
+      Result := Result + [LLogger];
     end;
 end;
 
@@ -252,9 +267,12 @@ begin
     raise Exception.CreateFmt('LoggerFactory [%s] not found', [AName]);
 end;
 
-procedure TLoggerRegistry.AddFactory(const AName, ACategory: string; AFactory: ILoggerFactory);
+procedure TLoggerRegistry.AddFactory(const ACategory: string; AFactory: ILoggerFactory);
+var
+  LFactoryObj: TObject;
 begin
-  FRegistry.Add(AName, FactoryInfo.New(ACategory, AFactory));
+  LFactoryObj := (AFactory as TObject);
+  FRegistry.Add(LFactoryObj.ClassName, FactoryInfo.New(ACategory, AFactory));
 end;
 
 function TLoggerRegistry.CreateLogger(AName: string): ILogger;
@@ -285,6 +303,11 @@ end;
 
 { TMultiLogger }
 
+constructor TMultiLogger.Create(const ACategory: string);
+begin
+  FCategory := ACategory;
+end;
+
 function TMultiLogger.GetLevel: TLogLevel;
 begin
   Result := FLevel;
@@ -294,7 +317,7 @@ procedure TMultiLogger.Log(const AMsg: string; ALevel: TLogLevel);
 var
   LLogger: ILogger;
 begin
-  for LLogger in TLoggerRegistry.Instance.GetLoggers('default') do
+  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
     LLogger.Log(AMsg, ALevel);
 end;
 
@@ -318,8 +341,7 @@ begin
   Log(AException.ClassName + '|' + AException.Message, TLogLevel.Error);
 end;
 
-procedure TMultiLogger.LogException(AException: Exception;
-  const ACustomMessage: string);
+procedure TMultiLogger.LogException(AException: Exception; const ACustomMessage: string);
 begin
   Log(ACustomMessage + '|' + AException.Message, TLogLevel.Error);
 end;
@@ -333,7 +355,7 @@ procedure TMultiLogger.LogRawLine(const AMsg: string);
 var
   LLogger: ILogger;
 begin
-  for LLogger in TLoggerRegistry.Instance.GetLoggers('default') do
+  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
     LLogger.LogRawLine(AMsg);
 end;
 
