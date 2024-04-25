@@ -12,6 +12,7 @@ type
   TBufferLogger = class(TLoggerHelper, ILogger)
   private
     FBuffer: TStringList;
+    FDestination: TStrings;
   protected
     procedure InternalLog(const AMsg: string; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMsg: string); override;
@@ -22,6 +23,7 @@ type
     // Non-interface methods
     procedure Flush(ADestination: ILogger); overload;
     procedure Flush(ADestination: TStrings); overload;
+    procedure SetDestination(ADestination: TStrings);
   end;
 
 implementation
@@ -52,12 +54,23 @@ end;
 
 procedure TBufferLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
-  FBuffer.Add(FormatLog(AMsg, ALevel));
+  if Assigned(FDestination) then
+    FDestination.Add(FormatLog(AMsg, ALevel))
+  else
+    FBuffer.Add(FormatLog(AMsg, ALevel));
 end;
 
 procedure TBufferLogger.InternalRaw(const AMsg: string);
 begin
-  FBuffer.Add(AMsg);
+  if Assigned(FDestination) then
+    FDestination.Add(AMsg)
+  else
+    FBuffer.Add(AMsg);
+end;
+
+procedure TBufferLogger.SetDestination(ADestination: TStrings);
+begin
+  FDestination := ADestination;
 end;
 
 end.

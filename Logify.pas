@@ -45,8 +45,17 @@ type
 
   ILoggerFactory = interface(IInterface)
   ['{2D5EE776-AB98-4A1C-88AB-C76339C05D72}']
+    function GetUniqueName: string;
     function CreateLogger: ILogger;
   end;
+
+  TLoggerFactory = class (TInterfacedObject, ILoggerFactory)
+    function GetUniqueName: string; virtual;
+    function CreateLogger: ILogger; virtual; abstract;
+  end;
+
+  TLoggerFactoryClass = class of TLoggerFactory;
+
 
   TLoggerHelper = class(TInterfacedObject)
   public const
@@ -102,8 +111,12 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    procedure AddFactory(AFactory: ILoggerFactory); overload;
-    procedure AddFactory(const ACategory: string; AFactory: ILoggerFactory); overload;
+    procedure RegisterFactoryClass(AFactoryClass: TLoggerFactoryClass); overload;
+    procedure RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerFactoryClass); overload;
+
+    procedure RegisterFactory(AFactory: ILoggerFactory); overload;
+    procedure RegisterFactory(const ACategory: string; AFactory: ILoggerFactory); overload;
+
     function FindFactory(const AName: string): ILoggerFactory;
     function GetFactory(const AName: string): ILoggerFactory;
 
@@ -178,11 +191,6 @@ begin
   FLock.Free;
 end;
 
-procedure TLoggerRegistry.AddFactory(AFactory: ILoggerFactory);
-begin
-  AddFactory(DEFAULT_CATEGORY, AFactory);
-end;
-
 constructor TLoggerRegistry.Create;
 begin
   FRegistry := TDictionary<string, FactoryInfo>.Create;
@@ -209,6 +217,13 @@ begin
     end;
   end;
   Result := FInstance;
+end;
+
+function TLoggerRegistry.GetFactory(const AName: string): ILoggerFactory;
+begin
+  Result := FindFactory(AName);
+  if not Assigned(Result) then
+    raise Exception.CreateFmt('LoggerFactory [%s] not found', [AName]);
 end;
 
 function TLoggerRegistry.FindFactory(const AName: string): ILoggerFactory;
@@ -260,19 +275,24 @@ begin
   end;
 end;
 
-function TLoggerRegistry.GetFactory(const AName: string): ILoggerFactory;
+procedure TLoggerRegistry.RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerFactoryClass);
 begin
-  Result := FindFactory(AName);
-  if not Assigned(Result) then
-    raise Exception.CreateFmt('LoggerFactory [%s] not found', [AName]);
+  RegisterFactory(ACategory, AFactoryClass.Create);
 end;
 
-procedure TLoggerRegistry.AddFactory(const ACategory: string; AFactory: ILoggerFactory);
-var
-  LFactoryObj: TObject;
+procedure TLoggerRegistry.RegisterFactoryClass(AFactoryClass: TLoggerFactoryClass);
 begin
-  LFactoryObj := (AFactory as TObject);
-  FRegistry.Add(LFactoryObj.ClassName, FactoryInfo.New(ACategory, AFactory));
+  RegisterFactory(DEFAULT_CATEGORY, AFactoryClass.Create);
+end;
+
+procedure TLoggerRegistry.RegisterFactory(AFactory: ILoggerFactory);
+begin
+  RegisterFactory(DEFAULT_CATEGORY, AFactory);
+end;
+
+procedure TLoggerRegistry.RegisterFactory(const ACategory: string; AFactory: ILoggerFactory);
+begin
+  FRegistry.Add(AFactory.GetUniqueName, FactoryInfo.New(ACategory, AFactory));
 end;
 
 function TLoggerRegistry.CreateLogger(AName: string): ILogger;
@@ -447,6 +467,13 @@ end;
 procedure TLoggerHelper.SetLevel(AValue: TLogLevel);
 begin
   FLevel := AValue;
+end;
+
+{ TLoggerFactory }
+
+function TLoggerFactory.GetUniqueName: string;
+begin
+  Result := Self.ClassName;
 end;
 
 initialization
