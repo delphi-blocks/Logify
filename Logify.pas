@@ -188,7 +188,8 @@ end;
 
 class destructor TLoggerRegistry.Destroy;
 begin
-  FLock.Free;
+  FreeAndNil(FLock);
+  FreeAndNil(FInstance);
 end;
 
 constructor TLoggerRegistry.Create;
