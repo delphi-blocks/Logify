@@ -19,7 +19,7 @@ implementation
 
 procedure TOutputDebugLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
-  OutputDebugString(PChar(FormatLog(AMsg, ALevel)));
+  OutputDebugString(PChar(FormatMsg(AMsg, ALevel)));
 end;
 
 procedure TOutputDebugLogger.InternalRaw(const AMsg: string);

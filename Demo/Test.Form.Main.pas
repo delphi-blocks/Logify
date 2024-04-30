@@ -24,8 +24,10 @@ type
     btnDebugLogger: TButton;
     memoLog: TMemo;
     btnBufferLogger: TButton;
+    btnLogDebug: TButton;
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
+    procedure btnLogDebugClick(Sender: TObject);
     procedure btnLogTraceClick(Sender: TObject);
   private
     { Private declarations }
@@ -50,9 +52,14 @@ begin
   TLoggerRegistry.Instance.RegisterFactoryClass(TDebugLogFactory);
 end;
 
+procedure TfrmMain.btnLogDebugClick(Sender: TObject);
+begin
+  Logger.LogDebug('Debugging some code');
+end;
+
 procedure TfrmMain.btnLogTraceClick(Sender: TObject);
 begin
-  Logger.LogTrace('Button Click');
+  Logger.LogTrace('Tracing something');
 end;
 
 { TDebugLogFactory }

@@ -18,7 +18,7 @@ implementation
 
 procedure TConsoleLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
-  Writeln(FormatLog(AMsg, ALevel));
+  Writeln(FormatMsg(AMsg, ALevel));
 end;
 
 procedure TConsoleLogger.InternalRaw(const AMsg: string);

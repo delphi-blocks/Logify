@@ -13,13 +13,9 @@ type
   /// </summary>
   TLogLevel = (Trace, Debug, Info, Warning, Error, Critical);
 
-const
-  DEFAULT_CATEGORY = 'default';
-  LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
-
 type
   /// <summary>
-  ///   Simple Logger Interface
+  ///   Logify Generic Logger Interface
   /// </summary>
   ILogger = interface(IInterface)
   ['{FEC81C15-3142-4ECF-AED5-4E05FB1FB882}']
@@ -39,33 +35,52 @@ type
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     // Log only the message as it is
     procedure LogRawLine(const AMsg: string);
+    procedure LogHeader;
     // Properties
     property Level: TLogLevel read GetLevel write SetLevel;
   end;
 
+  /// <summary>
+  ///   Logger Factory Interface
+  /// </summary>
   ILoggerFactory = interface(IInterface)
   ['{2D5EE776-AB98-4A1C-88AB-C76339C05D72}']
     function GetUniqueName: string;
     function CreateLogger: ILogger;
   end;
 
+  /// <summary>
+  ///   Logger Factory Base (utility) class
+  /// </summary>
   TLoggerFactory = class (TInterfacedObject, ILoggerFactory)
     function GetUniqueName: string; virtual;
     function CreateLogger: ILogger; virtual; abstract;
   end;
-
   TLoggerFactoryClass = class of TLoggerFactory;
 
+const
+  DEFAULT_CATEGORY = 'default';
+  LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
 
+type
+  /// <summary>
+  ///   Utility class for a logger implementing the ILogger interface
+  /// </summary>
   TLoggerHelper = class(TInterfacedObject)
   public const
-    LOG_TEMPLATE = '%s|%d|%s|%s';
+    LOG_TEMPLATE = '%-30s|%-10s|%-10s|%s';
+    LOG_LINE_SEP = '=';
+  private
+    FName: string;
   protected
     FLevel: TLogLevel;
+    FDefaultLevel: TLogLevel;
     function GetLevel: TLogLevel;
     procedure SetLevel(AValue: TLogLevel);
 
-    function FormatLog(const AMsg: string; ALevel: TLogLevel): string;
+    function FormatMsg(const AMsg: string; ALevel: TLogLevel): string; virtual;
+    function FormatHeader(): string; virtual;
+    function FormatSeparator(): string; virtual;
     procedure InternalLog(const AMsg: string; ALevel: TLogLevel); virtual; abstract;
     procedure InternalRaw(const AMsg: string); virtual; abstract;
   public
@@ -79,11 +94,16 @@ type
     procedure LogException(AException: Exception); overload;
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     procedure LogRawLine(const AMsg: string);
+    procedure LogHeader;
   public
+    property Name: string read FName write FName;
     property Level: TLogLevel read GetLevel write SetLevel;
+    property DefaultLevel: TLogLevel read FDefaultLevel write FDefaultLevel;
   end;
 
-
+  /// <summary>
+  ///   Main registry for the Factory classes and created Loggers (cache)
+  /// </summary>
   TLoggerRegistry = class
   private type
     FactoryInfo = record
@@ -127,7 +147,9 @@ type
     class property Instance: TLoggerRegistry read GetInstance;
   end;
 
-  // "default" Category Logger(s)
+  /// <summary>
+  ///   Ready to use Logger for the "default" category
+  /// </summary>
   function Logger: ILogger;
 
 implementation
@@ -155,6 +177,7 @@ type
     procedure LogException(AException: Exception); overload;
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     procedure LogRawLine(const AMsg: string);
+    procedure LogHeader();
 
     // Properties
     property Level: TLogLevel read GetLevel write SetLevel;
@@ -367,6 +390,14 @@ begin
   Log(ACustomMessage + '|' + AException.Message, TLogLevel.Error);
 end;
 
+procedure TMultiLogger.LogHeader;
+var
+  LLogger: ILogger;
+begin
+  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
+    LLogger.LogHeader();
+end;
+
 procedure TMultiLogger.LogInfo(const AMsg: string);
 begin
   Log(AMsg, TLogLevel.Info);
@@ -397,14 +428,29 @@ end;
 
 { TLoggerHelper }
 
-function TLoggerHelper.FormatLog(const AMsg: string; ALevel: TLogLevel): string;
+function TLoggerHelper.FormatHeader: string;
+begin
+  Result := Format(LOG_TEMPLATE, [
+      'DATE',
+      'THREAD',
+      'LEVEL',
+      'MESSAGE'
+    ]);
+end;
+
+function TLoggerHelper.FormatMsg(const AMsg: string; ALevel: TLogLevel): string;
 begin
   Result := Format(LOG_TEMPLATE, [
       DateToISO8601(Now, False),
-      TThread.CurrentThread.ThreadID,
+      TThread.CurrentThread.ThreadID.ToString,
       LOG_LEVEL_STR[ALevel],
       AMsg
     ]);
+end;
+
+function TLoggerHelper.FormatSeparator: string;
+begin
+  Result := StringOfChar(LOG_LINE_SEP, 60);
 end;
 
 function TLoggerHelper.GetLevel: TLogLevel;
@@ -443,6 +489,12 @@ end;
 procedure TLoggerHelper.LogException(AException: Exception; const ACustomMessage: string);
 begin
   Log(AException.ClassName + '|' + ACustomMessage, TLogLevel.Critical);
+end;
+
+procedure TLoggerHelper.LogHeader;
+begin
+  InternalRaw(FormatHeader());
+  InternalRaw(FormatSeparator());
 end;
 
 procedure TLoggerHelper.LogInfo(const AMsg: string);

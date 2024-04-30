@@ -55,9 +55,9 @@ end;
 procedure TBufferLogger.InternalLog(const AMsg: string; ALevel: TLogLevel);
 begin
   if Assigned(FDestination) then
-    FDestination.Add(FormatLog(AMsg, ALevel))
+    FDestination.Add(FormatMsg(AMsg, ALevel))
   else
-    FBuffer.Add(FormatLog(AMsg, ALevel));
+    FBuffer.Add(FormatMsg(AMsg, ALevel));
 end;
 
 procedure TBufferLogger.InternalRaw(const AMsg: string);
