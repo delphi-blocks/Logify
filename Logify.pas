@@ -1,3 +1,13 @@
+{******************************************************************************}
+{                                                                              }
+{  Logify: Metalogger for Delphi                                               }
+{                                                                              }
+{  Copyright (c) 2024 WiRL Team                                                }
+{  https://github.com/delphi-blocks/Logify                                     }
+{                                                                              }
+{  Licensed under the MIT license                                              }
+{                                                                              }
+{******************************************************************************}
 unit Logify;
 
 interface
