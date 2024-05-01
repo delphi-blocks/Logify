@@ -22,16 +22,19 @@ type
   ///   Logging levels
   /// </summary>
   TLogLevel = (Trace, Debug, Info, Warning, Error, Critical);
+  TLogLevelHelper = record helper for TLogLevel
+  private const
+    LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
+  public
+    function ToString: string;
+    procedure FromString(AValue: string);
+  end;
 
-type
   /// <summary>
   ///   Logify Generic Logger Interface
   /// </summary>
   ILogger = interface(IInterface)
   ['{FEC81C15-3142-4ECF-AED5-4E05FB1FB882}']
-    // Accessors for the Level property
-    function GetLevel: TLogLevel;
-    procedure SetLevel(AValue: TLogLevel);
     // Generic Log method
     procedure Log(const AMsg: string; ALevel: TLogLevel);
     // Specific Log* methods with levels
@@ -45,9 +48,8 @@ type
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     // Log only the message as it is
     procedure LogRawLine(const AMsg: string);
+    // Log the header
     procedure LogHeader;
-    // Properties
-    property Level: TLogLevel read GetLevel write SetLevel;
   end;
 
   /// <summary>
@@ -68,11 +70,25 @@ type
   end;
   TLoggerFactoryClass = class of TLoggerFactory;
 
-const
-  DEFAULT_CATEGORY = 'default';
-  LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
+  /// <summary>
+  ///   Base class for a logger configuration
+  /// </summary>
+  TLoggerConfig = class
+  private
+    FName: string;
+    FLevel: TLogLevel;
+    FWriteHeader: Boolean;
+    FDefaultLevel: TLogLevel;
+  public
+    procedure Assign(ASource: TLoggerConfig); virtual;
 
-type
+    property Name: string read FName write FName;
+    property Level: TLogLevel read FLevel write FLevel;
+    property DefaultLevel: TLogLevel read FDefaultLevel write FDefaultLevel;
+    property WriteHeader: Boolean read FWriteHeader write FWriteHeader;
+  end;
+
+
   /// <summary>
   ///   Utility class for a logger implementing the ILogger interface
   /// </summary>
@@ -80,20 +96,20 @@ type
   public const
     LOG_TEMPLATE = '%-30s|%-10s|%-10s|%s';
     LOG_LINE_SEP = '=';
-  private
-    FName: string;
   protected
-    FLevel: TLogLevel;
-    FDefaultLevel: TLogLevel;
-    function GetLevel: TLogLevel;
-    procedure SetLevel(AValue: TLogLevel);
-
+    FConfig: TLoggerConfig;
     function FormatMsg(const AMsg: string; ALevel: TLogLevel): string; virtual;
     function FormatHeader(): string; virtual;
     function FormatSeparator(): string; virtual;
     procedure InternalLog(const AMsg: string; ALevel: TLogLevel); virtual; abstract;
     procedure InternalRaw(const AMsg: string); virtual; abstract;
   public
+    constructor Create; overload; virtual;
+    constructor Create(AConfig: TLoggerConfig); overload; virtual;
+    destructor Destroy; override;
+
+    function GetConfig<T: TLoggerConfig>: T;
+
     procedure Log(const AMsg: string; ALevel: TLogLevel);
     procedure LogTrace(const AMsg: string);
     procedure LogDebug(const AMsg: string);
@@ -105,10 +121,6 @@ type
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     procedure LogRawLine(const AMsg: string);
     procedure LogHeader;
-  public
-    property Name: string read FName write FName;
-    property Level: TLogLevel read GetLevel write SetLevel;
-    property DefaultLevel: TLogLevel read FDefaultLevel write FDefaultLevel;
   end;
 
   /// <summary>
@@ -157,6 +169,9 @@ type
     class property Instance: TLoggerRegistry read GetInstance;
   end;
 
+const
+  DEFAULT_CATEGORY = 'default';
+
   /// <summary>
   ///   Ready to use Logger for the "default" category
   /// </summary>
@@ -165,15 +180,12 @@ type
 implementation
 
 uses
-  System.Classes, System.DateUtils;
+  System.TypInfo, System.Classes, System.DateUtils;
 
 type
   TMultiLogger = class(TInterfacedObject, ILogger)
   private
     FCategory: string;
-    FLevel: TLogLevel;
-    function GetLevel: TLogLevel;
-    procedure SetLevel(AValue: TLogLevel);
   public
     constructor Create(const ACategory: string);
 
@@ -188,9 +200,6 @@ type
     procedure LogException(AException: Exception; const ACustomMessage: string); overload;
     procedure LogRawLine(const AMsg: string);
     procedure LogHeader();
-
-    // Properties
-    property Level: TLogLevel read GetLevel write SetLevel;
   end;
 
 var
@@ -362,11 +371,6 @@ begin
   FCategory := ACategory;
 end;
 
-function TMultiLogger.GetLevel: TLogLevel;
-begin
-  Result := FLevel;
-end;
-
 procedure TMultiLogger.Log(const AMsg: string; ALevel: TLogLevel);
 var
   LLogger: ILogger;
@@ -431,12 +435,29 @@ begin
   Log(AMsg, TLogLevel.Warning);
 end;
 
-procedure TMultiLogger.SetLevel(AValue: TLogLevel);
+{ TLoggerHelper }
+
+constructor TLoggerHelper.Create;
 begin
-  FLevel := AValue;
+  FConfig := TLoggerConfig.Create;
+
+  FConfig.Level := TLogLevel.Error;
+  FConfig.DefaultLevel := TLogLevel.Error;
+  FConfig.WriteHeader := True;
 end;
 
-{ TLoggerHelper }
+constructor TLoggerHelper.Create(AConfig: TLoggerConfig);
+begin
+  FConfig := TLoggerConfig.Create;
+  FConfig.Assign(AConfig);
+end;
+
+destructor TLoggerHelper.Destroy;
+begin
+  FConfig.Free;
+
+  inherited;
+end;
 
 function TLoggerHelper.FormatHeader: string;
 begin
@@ -453,7 +474,7 @@ begin
   Result := Format(LOG_TEMPLATE, [
       DateToISO8601(Now, False),
       TThread.CurrentThread.ThreadID.ToString,
-      LOG_LEVEL_STR[ALevel],
+      ALevel.ToString,
       AMsg
     ]);
 end;
@@ -463,14 +484,14 @@ begin
   Result := StringOfChar(LOG_LINE_SEP, 60);
 end;
 
-function TLoggerHelper.GetLevel: TLogLevel;
+function TLoggerHelper.GetConfig<T>: T;
 begin
-  Result := FLevel;
+  Result := FConfig as T;
 end;
 
 procedure TLoggerHelper.Log(const AMsg: string; ALevel: TLogLevel);
 begin
-  if ALevel < FLevel then
+  if ALevel < FConfig.Level then
     Exit;
 
   InternalLog(AMsg, ALevel);
@@ -527,16 +548,33 @@ begin
   Log(AMsg, TLogLevel.Warning);
 end;
 
-procedure TLoggerHelper.SetLevel(AValue: TLogLevel);
-begin
-  FLevel := AValue;
-end;
-
 { TLoggerFactory }
 
 function TLoggerFactory.GetUniqueName: string;
 begin
   Result := Self.ClassName;
+end;
+
+{ TLoggerConfig }
+
+procedure TLoggerConfig.Assign(ASource: TLoggerConfig);
+begin
+  FName := ASource.Name;
+  FLevel := ASource.Level;
+  FDefaultLevel := ASource.DefaultLevel;
+  FWriteHeader := ASource.WriteHeader;
+end;
+
+{ TLogLevelHelper }
+
+procedure TLogLevelHelper.FromString(AValue: string);
+begin
+  Self := TLogLevel(GetEnumValue(TypeInfo(TLogLevel), AValue));
+end;
+
+function TLogLevelHelper.ToString: string;
+begin
+  Result := LOG_LEVEL_STR[Self];
 end;
 
 initialization
