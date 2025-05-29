@@ -1,8 +1,8 @@
 # Logify
 
-## Logify MetaLogger for Delphi
+![Logify](logify-square.png) {class=center}
 
-![Logify](logify-square.png)
+## Logify: MetaLogger for Delphi
 
 In modern software development, logging is indispensable for monitoring application health, debugging issues, and understanding user behavior. However, traditional logging approaches in Delphi often lead to tightly coupled code, where your application's business logic directly depends on a specific logging framework's classes and units. This creates a dependency, making it difficult to swap out loggers, introduces unnecessary compilation dependencies, and hinders testability. If you decide to change your logging backend to another solution, you're faced with a potentially large-scale refactoring effort across your entire codebase.
 
