@@ -3,7 +3,7 @@
 <br />
 
 <p align="center">
-  <img src="logify-square.png" alt="Logify Library" width="400" />
+  <img src="logify.png" alt="Logify Library" width="400" />
 </p>
 
 ## Logify: what is it?
