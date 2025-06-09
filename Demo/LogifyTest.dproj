@@ -1,7 +1,7 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{37100740-560C-44F2-980A-3B3F9EE8C401}</ProjectGuid>
-        <ProjectVersion>20.1</ProjectVersion>
+        <ProjectVersion>20.3</ProjectVersion>
         <FrameworkType>VCL</FrameworkType>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Debug</Config>
@@ -126,9 +126,11 @@
         <DCCReference Include="Test.Form.Main.pas">
             <Form>frmMain</Form>
         </DCCReference>
-        <DCCReference Include="..\Logify.Logger.Buffer.pas"/>
-        <DCCReference Include="..\Logify.Logger.OutputDebug.pas"/>
-        <DCCReference Include="..\Logify.pas"/>
+        <DCCReference Include="..\Source\Logify.Adapter.Buffer.pas"/>
+        <DCCReference Include="..\Source\Logify.Adapter.Console.pas"/>
+        <DCCReference Include="..\Source\Logify.Adapter.Debug.pas"/>
+        <DCCReference Include="..\Source\Logify.Adapter.Files.pas"/>
+        <DCCReference Include="..\Source\Logify.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -150,7 +152,8 @@
                     <Source Name="MainSource">LogifyTest.dpr</Source>
                 </Source>
             </Delphi.Personality>
-            <Deployment Version="4">
+            <Deployment Version="5">
+                <DeployFile LocalName="Win32\Debug\LogifyTest.exe" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployFile LocalName="Win32\Debug\LogifyTest.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win32">
                         <RemoteName>LogifyTest.exe</RemoteName>
@@ -167,16 +170,6 @@
                     </Platform>
                     <Platform Name="Win32">
                         <Operation>0</Operation>
-                    </Platform>
-                </DeployClass>
-                <DeployClass Name="AndroidClasses">
-                    <Platform Name="Android">
-                        <RemoteDir>classes</RemoteDir>
-                        <Operation>64</Operation>
-                    </Platform>
-                    <Platform Name="Android64">
-                        <RemoteDir>classes</RemoteDir>
-                        <Operation>64</Operation>
                     </Platform>
                 </DeployClass>
                 <DeployClass Name="AndroidFileProvider">
@@ -278,6 +271,16 @@
                     </Platform>
                     <Platform Name="Android64">
                         <RemoteDir>res\values-v31</RemoteDir>
+                        <Operation>1</Operation>
+                    </Platform>
+                </DeployClass>
+                <DeployClass Name="AndroidSplashStylesV35">
+                    <Platform Name="Android">
+                        <RemoteDir>res\values-v35</RemoteDir>
+                        <Operation>1</Operation>
+                    </Platform>
+                    <Platform Name="Android64">
+                        <RemoteDir>res\values-v35</RemoteDir>
                         <Operation>1</Operation>
                     </Platform>
                 </DeployClass>

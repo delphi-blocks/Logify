@@ -1,4 +1,4 @@
-# Logify: meta-logger for Delphi
+# Logify: meta-logger for Delphi 📝
 
 <br />
 
@@ -6,7 +6,7 @@
   <img src="logify.png" alt="Logify Library" width="400" />
 </p>
 
-## Logify: what is it?
+## Logify: what is it ❓
 
 In modern software development, logging is indispensable for monitoring application health, debugging issues, and understanding user behavior. However, traditional logging approaches in Delphi often lead to tightly coupled code, where your application's business logic directly depends on a specific logging framework's classes and units. This creates a dependency, making it difficult to swap out loggers, introduces unnecessary compilation dependencies, and hinders testability. If you decide to change your logging backend to another solution, you're faced with a potentially large-scale refactoring effort across your entire codebase.
 
@@ -26,7 +26,7 @@ At its core, Logify introduces an `ILogger` interface that your application code
 
 Logify acts as an intelligent proxy or a "meta-logger," providing a unified front for various logging backends. It's about shifting the paradigm from "I use *this* logger" to "I need *a* logger," empowering Delphi developers to build more flexible, maintainable, and robust applications that are ready for evolution. This introduction will explore how Logify achieves this decoupling and how you can leverage its power to revolutionize your Delphi logging strategy.
 
-## When to use Logify
+## When to use Logify 📎
 
 Logify is an easy interface to logging libraries so it makes sense to use it when you are in a situation where you already use more than a logger library, so you have to change your code one more time but... for the last time :-)
 
@@ -75,5 +75,18 @@ begin
 end;
 ```
 
-With Logify you can reuse this piece of code as is it, without removing or modifying nothing. And later, if the need arise, you can configure properly the `Logger` object.
+With Logify you can reuse this code as is it, without removing or modifying nothing. And later, if the need arise, you can configure properly the `Logger` object.
 
+## Logify Architecture 🏛️
+
+###  The `ILogger` Interface
+
+### The `ILoggerAdapter` Interface
+
+### The `ILoggerAdapterFactory` Interface
+
+Diagram for the Logify library architecture:
+
+<p align="center">
+  <img src="diagram.jpg" alt="Logify Architecture" width="600" />
+</p>

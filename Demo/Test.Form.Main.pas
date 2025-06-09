@@ -17,28 +17,27 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
 
   Logify,
-  Logify.Logger.Buffer,
-  Logify.Logger.OutputDebug;
+  Logify.Adapter.Buffer,
+  Logify.Adapter.Debug;
 
 type
-  TDebugLogFactory = class(TLoggerFactory)
-    function CreateLogger: ILogger; override;
-  end;
-
-  TBufferLogFactory = class(TLoggerFactory)
-    function CreateLogger: ILogger; override;
-  end;
-
   TfrmMain = class(TForm)
     btnLogTrace: TButton;
     btnDebugLogger: TButton;
     memoLog: TMemo;
     btnBufferLogger: TButton;
     btnLogDebug: TButton;
+    btnLogInfo: TButton;
+    btnLogWarning: TButton;
+    btnLogTraceEx: TButton;
+    btnLogDebugEx: TButton;
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
     procedure btnLogDebugClick(Sender: TObject);
+    procedure btnLogInfoClick(Sender: TObject);
     procedure btnLogTraceClick(Sender: TObject);
+    procedure btnLogTraceExClick(Sender: TObject);
+    procedure btnLogWarningClick(Sender: TObject);
   private
     { Private declarations }
   public
@@ -54,17 +53,24 @@ implementation
 
 procedure TfrmMain.btnBufferLoggerClick(Sender: TObject);
 begin
-  TLoggerRegistry.Instance.RegisterFactoryClass(TBufferLogFactory);
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TLogifyAdapterBufferFactory.CreateAdapterFactory(memoLog.Lines));
 end;
 
 procedure TfrmMain.btnDebugLoggerClick(Sender: TObject);
 begin
-  TLoggerRegistry.Instance.RegisterFactoryClass(TDebugLogFactory);
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TLogifyAdapterDebugFactory.CreateAdapterFactory);
 end;
 
 procedure TfrmMain.btnLogDebugClick(Sender: TObject);
 begin
-  Logger.LogDebug('Debugging some code');
+  Logger.LogDebug('Debugging something');
+end;
+
+procedure TfrmMain.btnLogInfoClick(Sender: TObject);
+begin
+  Logger.LogTrace('Some Info...');
 end;
 
 procedure TfrmMain.btnLogTraceClick(Sender: TObject);
@@ -72,20 +78,19 @@ begin
   Logger.LogTrace('Tracing something');
 end;
 
-{ TDebugLogFactory }
-
-function TDebugLogFactory.CreateLogger: ILogger;
+procedure TfrmMain.btnLogTraceExClick(Sender: TObject);
 begin
-  Result := TOutputDebugLogger.Create;
+  try
+    raise Exception.Create('Application Error Message');
+  except
+    on E: Exception do
+      Logger.LogTrace(E, 'My Error Message');
+  end;
 end;
 
-{ TBufferLogFactory }
-
-function TBufferLogFactory.CreateLogger: ILogger;
+procedure TfrmMain.btnLogWarningClick(Sender: TObject);
 begin
-  var logger := TBufferLogger.Create;
-  logger.SetDestination(frmMain.memoLog.Lines);
-  Result := logger;
+  Logger.LogWarning('Something happened...');
 end;
 
 end.

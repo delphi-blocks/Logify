@@ -18,13 +18,16 @@ uses
   System.SysUtils, System.Generics.Collections, System.SyncObjs;
 
 type
+  ELogifyException = class(Exception);
+
   /// <summary>
   ///   Logging levels
   /// </summary>
-  TLogLevel = (Trace, Debug, Info, Warning, Error, Critical);
+  TLogLevel = (Trace, Debug, Info, Warning, Error, Critical, Off);
   TLogLevelHelper = record helper for TLogLevel
   private const
-    LOG_LEVEL_STR: array[TLogLevel] of string = ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
+    LOG_LEVEL_STR: array[TLogLevel] of string =
+      ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF');
   public
     function ToString: string;
     procedure FromString(AValue: string);
@@ -35,94 +38,107 @@ type
   /// </summary>
   ILogger = interface(IInterface)
   ['{FEC81C15-3142-4ECF-AED5-4E05FB1FB882}']
-    // Generic Log method
-    procedure Log(const AMsg: string; ALevel: TLogLevel);
-    // Specific Log* methods with levels
-    procedure LogTrace(const AMsg: string);
-    procedure LogDebug(const AMsg: string);
-    procedure LogInfo(const AMsg: string);
-    procedure LogWarning(const AMsg: string);
-    procedure LogError(const AMsg: string);
-    procedure LogCritical(const AMsg: string);
-    // Log Delphi Exception
-    procedure LogException(AException: Exception);
-    // Log only the message as it is
+    // Standard Logging Methods
+    procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
+    procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
     procedure LogRawLine(const AMsg: string);
-    // Log the header
-    procedure LogHeader;
+
+    procedure LogTrace(const AMsg: string); overload;
+    procedure LogDebug(const AMsg: string); overload;
+    procedure LogInfo(const AMsg: string); overload;
+    procedure LogWarning(const AMsg: string); overload;
+    procedure LogError(const AMsg: string); overload;
+    procedure LogCritical(const AMsg: string); overload;
+
+    procedure LogTrace(AException: Exception; const AMsg: string); overload;
+    procedure LogDebug(AException: Exception; const AMsg: string); overload;
+    procedure LogInfo(AException: Exception; const AMsg: string); overload;
+    procedure LogWarning(AException: Exception; const AMsg: string); overload;
+    procedure LogError(AException: Exception; const AMsg: string); overload;
+    procedure LogCritical(AException: Exception; const AMsg: string); overload;
   end;
 
   /// <summary>
-  ///   Logger Factory Interface
+  ///   Logger Adapter Interface
   /// </summary>
-  ILoggerFactory = interface(IInterface)
+  ILoggerAdapter = interface(IInterface)
+  ['{3593B5F9-EACB-403F-90DA-A63C32AD4E33}']
+    procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+    procedure WriteRawLine(const AMsg: string);
+    function GetLoggerInstance(const AName: string = ''): TObject;
+  end;
+
+  /// <summary>
+  ///   Adapter Factory Interface
+  /// </summary>
+  ILoggerAdapterFactory = interface(IInterface)
   ['{2D5EE776-AB98-4A1C-88AB-C76339C05D72}']
     function GetUniqueName: string;
-    function CreateLogger: ILogger;
+    function CreateLoggerAdapter: ILoggerAdapter;
   end;
 
   /// <summary>
-  ///   Logger Factory Base (utility) class
+  ///   Logger Adapter Factory Base (utility) class
   /// </summary>
-  TLoggerFactory = class (TInterfacedObject, ILoggerFactory)
+  TLoggerAdapterFactory = class (TInterfacedObject, ILoggerAdapterFactory)
+  protected
+    FName: string;
+  public
     function GetUniqueName: string; virtual;
-    function CreateLogger: ILogger; virtual; abstract;
+    function CreateLoggerAdapter: ILoggerAdapter; virtual; abstract;
+
+    property Name: string read FName write FName;
   end;
-  TLoggerFactoryClass = class of TLoggerFactory;
+  TLoggerAdapterFactoryClass = class of TLoggerAdapterFactory;
 
   /// <summary>
   ///   Utility class for a logger implementing the ILogger interface
   /// </summary>
-  TLoggerHelper = class(TInterfacedObject)
+  TLoggerAdapterHelper = class(TInterfacedObject, ILoggerAdapter)
   public const
-    LOG_TEMPLATE = '%-30s|%-10s|%-10s|%s';
+    LOG_TEMPLATE = '%s %s %s %s %s';
     LOG_LINE_SEP = '=';
   protected
     FLevel: TLogLevel;
-    function FormatMsg(const AMsg: string; ALevel: TLogLevel): string; virtual;
+    function FormatMsg(const AClassName: string; const AException: Exception; const AMsg: string; ALevel: TLogLevel): string; virtual;
     function FormatHeader(): string; virtual;
     function FormatSeparator(): string; virtual;
-    procedure InternalLog(const AMsg: string; ALevel: TLogLevel); virtual; abstract;
-    procedure InternalRaw(const AMsg: string); virtual; abstract;
+
+    procedure InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel); virtual; abstract;
+    function InternalGetLogger(const AName: string = ''): TObject; virtual; abstract;
   public
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
 
-    procedure Log(const AMsg: string; ALevel: TLogLevel);
-    procedure LogTrace(const AMsg: string);
-    procedure LogDebug(const AMsg: string);
-    procedure LogInfo(const AMsg: string);
-    procedure LogWarning(const AMsg: string);
-    procedure LogError(const AMsg: string);
-    procedure LogCritical(const AMsg: string);
-    procedure LogException(AException: Exception);
-    procedure LogRawLine(const AMsg: string);
-    procedure LogHeader;
+    procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+    procedure WriteRawLine(const AMsg: string);
+    function GetLoggerInstance(const AName: string = ''): TObject;
+
+    property Level: TLogLevel read FLevel write FLevel;
   end;
 
   /// <summary>
-  ///   Main registry for the Factory classes and created Loggers (cache)
+  ///   Main registry for the Factory classes and created Logger Adapters (cache)
   /// </summary>
-  TLoggerRegistry = class
+  TLoggerAdapterRegistry = class
   private type
     FactoryInfo = record
       Category: string;
-      Factory: ILoggerFactory;
-      class function New(const ACategory: string; AFactory: ILoggerFactory): FactoryInfo; static;
+      Factory: ILoggerAdapterFactory;
+      class function New(const ACategory: string; AFactory: ILoggerAdapterFactory): FactoryInfo; static;
     end;
-    LoggerInfo = record
+    LoggerAdapterInfo = record
       Category: string;
-      Logger: ILogger;
-      class function New(const ACategory: string; ALogger: ILogger): LoggerInfo; static;
+      LoggerAdapter: ILoggerAdapter;
+      class function New(const ACategory: string; ALoggerAdapter: ILoggerAdapter): LoggerAdapterInfo; static;
     end;
   private class var
-    FLock: TCriticalSection;
-    FInstance: TLoggerRegistry;
+    FInstance: TLoggerAdapterRegistry;
   private
-    FLoggers: TDictionary<string, LoggerInfo>;
+    FLoggerAdapters: TDictionary<string, LoggerAdapterInfo>;
     FRegistry: TDictionary<string, FactoryInfo>;
-    class function GetInstance: TLoggerRegistry; static;
-    function GetOrCreateLogger(const AName: string): ILogger;
+    class function GetInstance: TLoggerAdapterRegistry; static;
+    function GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
   public
     class constructor Create;
     class destructor Destroy;
@@ -130,20 +146,30 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    procedure RegisterFactoryClass(AFactoryClass: TLoggerFactoryClass); overload;
-    procedure RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerFactoryClass); overload;
+    procedure RegisterFactoryClass(AFactoryClass: TLoggerAdapterFactoryClass); overload;
+    procedure RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerAdapterFactoryClass); overload;
 
-    procedure RegisterFactory(AFactory: ILoggerFactory); overload;
-    procedure RegisterFactory(const ACategory: string; AFactory: ILoggerFactory); overload;
+    procedure RegisterFactory(AFactory: ILoggerAdapterFactory); overload;
+    procedure RegisterFactory(const ACategory: string; AFactory: ILoggerAdapterFactory); overload;
 
-    function FindFactory(const AName: string): ILoggerFactory;
-    function GetFactory(const AName: string): ILoggerFactory;
+    function FindFactory(const AName: string): ILoggerAdapterFactory;
+    function GetFactory(const AName: string): ILoggerAdapterFactory;
 
-    function CreateLogger(AName: string): ILogger;
-    function FindLogger(const AName: string): ILogger;
-    function GetLoggers(const ACategory: string): TArray<ILogger>;
+    function CreateLoggerAdapter(AName: string): ILoggerAdapter;
+    function FindLoggerAdapter(const AName: string): ILoggerAdapter;
+    function GetLoggerAdapters(const ACategory: string): TArray<ILoggerAdapter>;
 
-    class property Instance: TLoggerRegistry read GetInstance;
+    class property Instance: TLoggerAdapterRegistry read GetInstance;
+  end;
+
+  /// <summary>
+  ///   Manager static class to get ILogger and ILogger<T> ready to use
+  /// </summary>
+  TLoggerManager = class
+  public
+    class function GetLogger<T:class>(): ILogger; overload; static;
+    class function GetLogger(AClass: TClass): ILogger; overload; static;
+    class function GetLogger(AClassName: string): ILogger; overload; static;
   end;
 
 const
@@ -157,31 +183,42 @@ const
 implementation
 
 uses
-  System.TypInfo, System.Classes, System.DateUtils;
+  System.TypInfo, System.Classes, System.DateUtils, System.Rtti;
 
 type
   TMultiLogger = class(TInterfacedObject, ILogger)
   private
     FCategory: string;
+    FClassName: string;
   public
-    constructor Create(const ACategory: string);
+    constructor Create(const AClassName: string; const ACategory: string);
 
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
+    procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
+
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
     procedure LogInfo(const AMsg: string); overload;
     procedure LogWarning(const AMsg: string); overload;
     procedure LogError(const AMsg: string); overload;
     procedure LogCritical(const AMsg: string); overload;
-    procedure LogException(AException: Exception); overload;
-    procedure LogException(AException: Exception; const ACustomMessage: string); overload;
+
+    procedure LogTrace(AException: Exception; const AMsg: string); overload;
+    procedure LogDebug(AException: Exception; const AMsg: string); overload;
+    procedure LogInfo(AException: Exception; const AMsg: string); overload;
+    procedure LogWarning(AException: Exception; const AMsg: string); overload;
+    procedure LogError(AException: Exception; const AMsg: string); overload;
+    procedure LogCritical(AException: Exception; const AMsg: string); overload;
+
     procedure LogRawLine(const AMsg: string);
-    procedure LogHeader();
+
+    function GetLoggerInstance(const AName: string): TObject;
   end;
 
 var
   _Logger: ILogger;
   _Lock: TCriticalSection;
+  _RegistryLock: TCriticalSection;
 
 function Logger: ILogger;
 begin
@@ -190,7 +227,7 @@ begin
     _Lock.Acquire;
     try
       if not Assigned(_Logger) then
-        _Logger := TMultiLogger.Create(DEFAULT_CATEGORY);
+        _Logger := TMultiLogger.Create('', DEFAULT_CATEGORY);
     finally
       _Lock.Release;
     end;
@@ -198,55 +235,54 @@ begin
   Result := _Logger;
 end;
 
-{ TLoggerRegistry }
+{ TLoggerAdapterRegistry }
 
-class constructor TLoggerRegistry.Create;
+class constructor TLoggerAdapterRegistry.Create;
 begin
-  FLock := TCriticalSection.Create;
+
 end;
 
-class destructor TLoggerRegistry.Destroy;
+class destructor TLoggerAdapterRegistry.Destroy;
 begin
-  FreeAndNil(FLock);
   FreeAndNil(FInstance);
 end;
 
-constructor TLoggerRegistry.Create;
+constructor TLoggerAdapterRegistry.Create;
 begin
   FRegistry := TDictionary<string, FactoryInfo>.Create;
-  FLoggers := TDictionary<string, LoggerInfo>.Create;
+  FLoggerAdapters := TDictionary<string, LoggerAdapterInfo>.Create;
 end;
 
-destructor TLoggerRegistry.Destroy;
+destructor TLoggerAdapterRegistry.Destroy;
 begin
-  FLoggers.Free;
+  FLoggerAdapters.Free;
   FRegistry.Free;
   inherited;
 end;
 
-class function TLoggerRegistry.GetInstance: TLoggerRegistry;
+class function TLoggerAdapterRegistry.GetInstance: TLoggerAdapterRegistry;
 begin
   if not Assigned(FInstance) then
   begin
-    FLock.Acquire;
+    _RegistryLock.Acquire;
     try
       if not Assigned(FInstance) then
-        FInstance := TLoggerRegistry.Create;
+        FInstance := TLoggerAdapterRegistry.Create;
     finally
-      FLock.Release;
+      _RegistryLock.Release;
     end;
   end;
   Result := FInstance;
 end;
 
-function TLoggerRegistry.GetFactory(const AName: string): ILoggerFactory;
+function TLoggerAdapterRegistry.GetFactory(const AName: string): ILoggerAdapterFactory;
 begin
   Result := FindFactory(AName);
   if not Assigned(Result) then
-    raise Exception.CreateFmt('LoggerFactory [%s] not found', [AName]);
+    raise ELogifyException.CreateFmt('LoggerFactory [%s] not found', [AName]);
 end;
 
-function TLoggerRegistry.FindFactory(const AName: string): ILoggerFactory;
+function TLoggerAdapterRegistry.FindFactory(const AName: string): ILoggerAdapterFactory;
 var
   LInfo: FactoryInfo;
 begin
@@ -255,87 +291,86 @@ begin
     Result := LInfo.Factory;
 end;
 
-function TLoggerRegistry.FindLogger(const AName: string): ILogger;
+function TLoggerAdapterRegistry.FindLoggerAdapter(const AName: string): ILoggerAdapter;
 var
-  LReg: TPair<string, LoggerInfo>;
+  LReg: TPair<string, LoggerAdapterInfo>;
 begin
   Result := nil;
-  for LReg in FLoggers do
+  for LReg in FLoggerAdapters do
    if LReg.Key = AName then
-     Result := LReg.Value.Logger;
+     Result := LReg.Value.LoggerAdapter;
 end;
 
-function TLoggerRegistry.GetLoggers(const ACategory: string): TArray<ILogger>;
+function TLoggerAdapterRegistry.GetLoggerAdapters(const ACategory: string): TArray<ILoggerAdapter>;
 var
   LReg: TPair<string, FactoryInfo>;
-  LLogger: ILogger;
+  LLogger: ILoggerAdapter;
 begin
   Result := [];
 
   for LReg in FRegistry do
     if LReg.Value.Category = ACategory then
     begin
-      LLogger := GetOrCreateLogger(LReg.Key);
+      LLogger := GetOrCreateLoggerAdapter(LReg.Key);
       Result := Result + [LLogger];
     end;
 end;
 
-function TLoggerRegistry.GetOrCreateLogger(const AName: string): ILogger;
+function TLoggerAdapterRegistry.GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
 var
-  LLoggerInfo: LoggerInfo;
+  LLoggerAdapterInfo: LoggerAdapterInfo;
   LFactoryInfo: FactoryInfo;
 begin
-  if FLoggers.TryGetValue(AName, LLoggerInfo) then
-    Exit(LLoggerInfo.Logger);
+  if FLoggerAdapters.TryGetValue(AName, LLoggerAdapterInfo) then
+    Exit(LLoggerAdapterInfo.LoggerAdapter);
 
   if FRegistry.TryGetValue(AName, LFactoryInfo) then
   begin
-    Result := LFactoryInfo.Factory.CreateLogger;
-    FLoggers.Add(AName, LoggerInfo.New(LFactoryInfo.Category, Result));
+    Result := LFactoryInfo.Factory.CreateLoggerAdapter;
+    FLoggerAdapters.Add(AName, LoggerAdapterInfo.New(LFactoryInfo.Category, Result));
   end;
 end;
 
-procedure TLoggerRegistry.RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerFactoryClass);
+procedure TLoggerAdapterRegistry.RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerAdapterFactoryClass);
 begin
   RegisterFactory(ACategory, AFactoryClass.Create);
 end;
 
-procedure TLoggerRegistry.RegisterFactoryClass(AFactoryClass: TLoggerFactoryClass);
+procedure TLoggerAdapterRegistry.RegisterFactoryClass(AFactoryClass: TLoggerAdapterFactoryClass);
 begin
   RegisterFactory(DEFAULT_CATEGORY, AFactoryClass.Create);
 end;
 
-procedure TLoggerRegistry.RegisterFactory(AFactory: ILoggerFactory);
+procedure TLoggerAdapterRegistry.RegisterFactory(AFactory: ILoggerAdapterFactory);
 begin
   RegisterFactory(DEFAULT_CATEGORY, AFactory);
 end;
 
-procedure TLoggerRegistry.RegisterFactory(const ACategory: string; AFactory: ILoggerFactory);
+procedure TLoggerAdapterRegistry.RegisterFactory(const ACategory: string; AFactory: ILoggerAdapterFactory);
 begin
   FRegistry.Add(AFactory.GetUniqueName, FactoryInfo.New(ACategory, AFactory));
 end;
 
-function TLoggerRegistry.CreateLogger(AName: string): ILogger;
+function TLoggerAdapterRegistry.CreateLoggerAdapter(AName: string): ILoggerAdapter;
 var
   LInfo: FactoryInfo;
 begin
   Result := nil;
   if FRegistry.TryGetValue(AName, LInfo) then
-    Result := LInfo.Factory.CreateLogger;
+    Result := LInfo.Factory.CreateLoggerAdapter;
 end;
 
-{ TLoggerRegistry.LoggerInfo }
+{ TLoggerAdapterRegistry.LoggerAdapterInfo }
 
-class function TLoggerRegistry.LoggerInfo.New(const ACategory: string; ALogger: ILogger): LoggerInfo;
+class function TLoggerAdapterRegistry.LoggerAdapterInfo.New(const ACategory: string; ALoggerAdapter: ILoggerAdapter): LoggerAdapterInfo;
 begin
   Result.Category := ACategory;
-  Result.Logger := ALogger;
+  Result.LoggerAdapter := ALoggerAdapter;
 end;
 
-{ TLoggerRegistry.FactoryInfo }
+{ TLoggerAdapterRegistry.FactoryInfo }
 
-class function TLoggerRegistry.FactoryInfo.New(const ACategory: string;
-  AFactory: ILoggerFactory): FactoryInfo;
+class function TLoggerAdapterRegistry.FactoryInfo.New(const ACategory: string; AFactory: ILoggerAdapterFactory): FactoryInfo;
 begin
   Result.Category := ACategory;
   Result.Factory := AFactory;
@@ -343,171 +378,204 @@ end;
 
 { TMultiLogger }
 
-constructor TMultiLogger.Create(const ACategory: string);
+constructor TMultiLogger.Create(const AClassName: string; const ACategory: string);
 begin
+  FClassName := AClassName;
   FCategory := ACategory;
-end;
-
-procedure TMultiLogger.Log(const AMsg: string; ALevel: TLogLevel);
-var
-  LLogger: ILogger;
-begin
-  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
-    LLogger.Log(AMsg, ALevel);
 end;
 
 procedure TMultiLogger.LogCritical(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Critical);
+  Log(nil, AMsg, TLogLevel.Critical);
 end;
 
 procedure TMultiLogger.LogDebug(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Debug);
+  Log(nil, AMsg, TLogLevel.Debug);
 end;
 
 procedure TMultiLogger.LogError(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Error);
+  Log(nil, AMsg, TLogLevel.Error);
 end;
 
-procedure TMultiLogger.LogException(AException: Exception);
+procedure TMultiLogger.LogInfo(AException: Exception; const AMsg: string);
 begin
-  Log(AException.ClassName + '|' + AException.Message, TLogLevel.Error);
-end;
-
-procedure TMultiLogger.LogException(AException: Exception; const ACustomMessage: string);
-begin
-  Log(ACustomMessage + '|' + AException.Message, TLogLevel.Error);
-end;
-
-procedure TMultiLogger.LogHeader;
-var
-  LLogger: ILogger;
-begin
-  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
-    LLogger.LogHeader();
+  Log(AException, AMsg, TLogLevel.Info);
 end;
 
 procedure TMultiLogger.LogInfo(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Info);
+  Log(nil, AMsg, TLogLevel.Info);
 end;
 
 procedure TMultiLogger.LogRawLine(const AMsg: string);
 var
-  LLogger: ILogger;
+  LLoggerAdapter: ILoggerAdapter;
 begin
-  for LLogger in TLoggerRegistry.Instance.GetLoggers(FCategory) do
-    LLogger.LogRawLine(AMsg);
+  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
+    LLoggerAdapter.WriteRawLine(AMsg);
+end;
+
+procedure TMultiLogger.LogTrace(AException: Exception; const AMsg: string);
+begin
+  Log(AException, AMsg, TLogLevel.Trace);
 end;
 
 procedure TMultiLogger.LogTrace(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Trace);
+  Log(nil, AMsg, TLogLevel.Trace);
 end;
 
 procedure TMultiLogger.LogWarning(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Warning);
+  Log(nil, AMsg, TLogLevel.Warning);
 end;
 
-{ TLoggerHelper }
+function TMultiLogger.GetLoggerInstance(const AName: string): TObject;
+var
+  LLogger: TObject;
+  LLoggerAdapter: ILoggerAdapter;
+begin
+  Result := nil;
+  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
+  begin
+    LLogger := LLoggerAdapter.GetLoggerInstance(AName);
+    if Assigned(LLogger) then
+      Exit(LLogger);
+  end;
+end;
 
-constructor TLoggerHelper.Create;
+procedure TMultiLogger.Log(AException: Exception; const AMsg: string; ALevel: TLogLevel);
+var
+  LLoggerAdapter: ILoggerAdapter;
+begin
+  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
+    LLoggerAdapter.WriteLog(FClassName, AMsg, AException, ALevel);
+end;
+
+procedure TMultiLogger.Log(const AMsg: string; ALevel: TLogLevel);
+begin
+  Log(nil, AMsg, ALevel);
+end;
+
+procedure TMultiLogger.LogCritical(AException: Exception; const AMsg: string);
+begin
+  Log(AException, AMsg, TLogLevel.Critical);
+end;
+
+procedure TMultiLogger.LogDebug(AException: Exception; const AMsg: string);
+begin
+  Log(AException, AMsg, TLogLevel.Debug);
+end;
+
+procedure TMultiLogger.LogError(AException: Exception; const AMsg: string);
+begin
+  Log(AException, AMsg, TLogLevel.Error);
+end;
+
+procedure TMultiLogger.LogWarning(AException: Exception; const AMsg: string);
+begin
+  Log(AException, AMsg, TLogLevel.Warning);
+end;
+
+{ TLoggerAdapterHelper }
+
+constructor TLoggerAdapterHelper.Create;
 begin
   FLevel := TLogLevel.Info;
 end;
 
-constructor TLoggerHelper.Create(ALevel: TLogLevel);
+constructor TLoggerAdapterHelper.Create(ALevel: TLogLevel);
 begin
   FLevel := ALevel;
 end;
 
-function TLoggerHelper.FormatHeader: string;
+function TLoggerAdapterHelper.FormatHeader: string;
 begin
   Result := Format(LOG_TEMPLATE, [
       'DATE',
       'THREAD',
       'LEVEL',
+      'CLASS',
       'MESSAGE'
     ]);
 end;
 
-function TLoggerHelper.FormatMsg(const AMsg: string; ALevel: TLogLevel): string;
+function TLoggerAdapterHelper.FormatMsg(const AClassName: string; const AException: Exception; const AMsg: string; ALevel: TLogLevel): string;
+var
+  LStackTrace: string;
+  LMsg: string;
+  LClassName: string;
+  LIndex: integer;
 begin
-  Result := Format(LOG_TEMPLATE, [
+  if AException <> nil then
+  begin
+    LStackTrace := AException.StackTrace;
+    if LStackTrace <> '' then
+      LMsg := AMsg + #13#10 + AException.ClassName() + ': ' + AException.ToString() + #13#10 + LStackTrace
+    else
+      LMsg := AMsg + #13#10 + AException.ClassName() + ': ' + AException.ToString();
+  end
+  else
+    LMsg := AMsg;
+
+  if AClassName = '' then
+    Result := Format(LOG_TEMPLATE, [
       DateToISO8601(Now, False),
       TThread.CurrentThread.ThreadID.ToString,
+      '-',
       ALevel.ToString,
-      AMsg
+      LMsg
+    ])
+  else begin
+    LIndex := AClassName.LastIndexOf('.');
+    if LIndex >= 0 then
+      LClassName := AClassName.Substring(LIndex + 1)
+    else
+      LClassName := AClassName;
+
+    Result := Format(LOG_TEMPLATE, [
+      DateToISO8601(Now, False),
+      TThread.CurrentThread.ThreadID.ToString,
+      LClassName,
+      ALevel.ToString,
+      LMsg
     ]);
+  end;
 end;
 
-function TLoggerHelper.FormatSeparator: string;
+function TLoggerAdapterHelper.FormatSeparator: string;
 begin
   Result := StringOfChar(LOG_LINE_SEP, 60);
 end;
 
-procedure TLoggerHelper.Log(const AMsg: string; ALevel: TLogLevel);
+function TLoggerAdapterHelper.GetLoggerInstance(const AName: string): TObject;
+begin
+  Result := InternalGetLogger(AName);
+end;
+
+procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
 begin
   if ALevel < FLevel then
     Exit;
 
-  InternalLog(AMsg, ALevel);
+  InternalLog(AClassName, AException, FormatMsg(AClassName, AException, AMsg, ALevel), ALevel);
 end;
 
-procedure TLoggerHelper.LogCritical(const AMsg: string);
+procedure TLoggerAdapterHelper.WriteRawLine(const AMsg: string);
 begin
-  Log(AMsg, TLogLevel.Critical);
+  InternalLog(string.Empty, nil, AMsg, TLogLevel.Info);
 end;
 
-procedure TLoggerHelper.LogDebug(const AMsg: string);
-begin
-  Log(AMsg, TLogLevel.Debug);
-end;
+{ TLoggerAdapterFactory }
 
-procedure TLoggerHelper.LogError(const AMsg: string);
+function TLoggerAdapterFactory.GetUniqueName: string;
 begin
-  Log(AMsg, TLogLevel.Error);
-end;
-
-procedure TLoggerHelper.LogException(AException: Exception);
-begin
-  Log(AException.ClassName + '|' + AException.Message, TLogLevel.Critical);
-end;
-
-procedure TLoggerHelper.LogHeader;
-begin
-  InternalRaw(FormatHeader());
-  InternalRaw(FormatSeparator());
-end;
-
-procedure TLoggerHelper.LogInfo(const AMsg: string);
-begin
-  Log(AMsg, TLogLevel.Info);
-end;
-
-procedure TLoggerHelper.LogRawLine(const AMsg: string);
-begin
-  InternalRaw(AMsg);
-end;
-
-procedure TLoggerHelper.LogTrace(const AMsg: string);
-begin
-  Log(AMsg, TLogLevel.Trace);
-end;
-
-procedure TLoggerHelper.LogWarning(const AMsg: string);
-begin
-  Log(AMsg, TLogLevel.Warning);
-end;
-
-{ TLoggerFactory }
-
-function TLoggerFactory.GetUniqueName: string;
-begin
-  Result := Self.ClassName;
+  if FName.IsEmpty then
+    Result := Self.ClassName
+  else
+    Result := FName;
 end;
 
 { TLogLevelHelper }
@@ -522,10 +590,29 @@ begin
   Result := LOG_LEVEL_STR[Self];
 end;
 
+{ TLoggerManager }
+
+class function TLoggerManager.GetLogger(AClassName: string): ILogger;
+begin
+  Result := TMultiLogger.Create(AClassName, DEFAULT_CATEGORY);
+end;
+
+class function TLoggerManager.GetLogger(AClass: TClass): ILogger;
+begin
+  Result := TMultiLogger.Create(AClass.QualifiedClassName(), DEFAULT_CATEGORY);
+end;
+
+class function TLoggerManager.GetLogger<T>: ILogger;
+begin
+  Result := GetLogger(PTypeInfo(TypeInfo(T)).TypeData.ClassType.QualifiedClassName());
+end;
+
 initialization
   _Lock := TCriticalSection.Create;
+  _RegistryLock := TCriticalSection.Create;
 
 finalization
-  _Lock.Free;
+  FreeAndNil(_Lock);
+  FreeAndNil(_RegistryLock);
 
 end.

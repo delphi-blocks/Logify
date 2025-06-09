@@ -13,8 +13,8 @@ object frmMain: TfrmMain
   Font.Style = []
   TextHeight = 15
   object btnLogTrace: TButton
-    Left = 8
-    Top = 109
+    Left = 480
+    Top = 8
     Width = 75
     Height = 25
     Caption = 'LogTrace'
@@ -23,7 +23,7 @@ object frmMain: TfrmMain
   end
   object btnDebugLogger: TButton
     Left = 8
-    Top = 24
+    Top = 8
     Width = 137
     Height = 25
     Caption = 'Register Debug Logger'
@@ -48,14 +48,10 @@ object frmMain: TfrmMain
     Font.Style = []
     ParentFont = False
     TabOrder = 2
-    ExplicitLeft = 0
-    ExplicitTop = 135
-    ExplicitWidth = 740
-    ExplicitHeight = 344
   end
   object btnBufferLogger: TButton
-    Left = 151
-    Top = 24
+    Left = 8
+    Top = 39
     Width = 137
     Height = 25
     Caption = 'Register Buffer Logger'
@@ -63,12 +59,47 @@ object frmMain: TfrmMain
     OnClick = btnBufferLoggerClick
   end
   object btnLogDebug: TButton
-    Left = 89
-    Top = 109
+    Left = 480
+    Top = 39
     Width = 75
     Height = 25
     Caption = 'LogDebug'
     TabOrder = 4
     OnClick = btnLogDebugClick
+  end
+  object btnLogInfo: TButton
+    Left = 480
+    Top = 70
+    Width = 75
+    Height = 25
+    Caption = 'LogInfo'
+    TabOrder = 5
+    OnClick = btnLogInfoClick
+  end
+  object btnLogWarning: TButton
+    Left = 480
+    Top = 104
+    Width = 75
+    Height = 25
+    Caption = 'LogWarning'
+    TabOrder = 6
+    OnClick = btnLogWarningClick
+  end
+  object btnLogTraceEx: TButton
+    Left = 587
+    Top = 8
+    Width = 145
+    Height = 25
+    Caption = 'LogTrace+Exception'
+    TabOrder = 7
+    OnClick = btnLogTraceExClick
+  end
+  object btnLogDebugEx: TButton
+    Left = 587
+    Top = 39
+    Width = 145
+    Height = 25
+    Caption = 'LogDebug+Exception'
+    TabOrder = 8
   end
 end
