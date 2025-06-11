@@ -100,18 +100,19 @@ type
     LOG_LINE_SEP = '=';
   protected
     FLevel: TLogLevel;
-    function FormatMsg(const AClassName: string; const AException: Exception; const AMsg: string; ALevel: TLogLevel): string; virtual;
+    function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; virtual;
     function FormatHeader(): string; virtual;
     function FormatSeparator(): string; virtual;
 
-    procedure InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel); virtual; abstract;
+    procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); virtual; abstract;
+    procedure InternalRaw(const AMessage: string); virtual; abstract;
     function InternalGetLogger(const AName: string = ''): TObject; virtual; abstract;
   public
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
 
-    procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
-    procedure WriteRawLine(const AMsg: string);
+    procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
+    procedure WriteRawLine(const AMessage: string);
     function GetLoggerInstance(const AName: string = ''): TObject;
 
     property Level: TLogLevel read FLevel write FLevel;
@@ -502,7 +503,7 @@ begin
     ]);
 end;
 
-function TLoggerAdapterHelper.FormatMsg(const AClassName: string; const AException: Exception; const AMsg: string; ALevel: TLogLevel): string;
+function TLoggerAdapterHelper.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
 var
   LStackTrace: string;
   LMsg: string;
@@ -513,12 +514,12 @@ begin
   begin
     LStackTrace := AException.StackTrace;
     if LStackTrace <> '' then
-      LMsg := AMsg + #13#10 + AException.ClassName() + ': ' + AException.ToString() + #13#10 + LStackTrace
+      LMsg := AMessage + #13#10 + AException.ClassName() + ': ' + AException.ToString() + #13#10 + LStackTrace
     else
-      LMsg := AMsg + #13#10 + AException.ClassName() + ': ' + AException.ToString();
+      LMsg := AMessage + #13#10 + AException.ClassName() + ': ' + AException.ToString();
   end
   else
-    LMsg := AMsg;
+    LMsg := AMessage;
 
   if AClassName = '' then
     Result := Format(LOG_TEMPLATE, [
@@ -528,7 +529,8 @@ begin
       ALevel.ToString,
       LMsg
     ])
-  else begin
+  else
+  begin
     LIndex := AClassName.LastIndexOf('.');
     if LIndex >= 0 then
       LClassName := AClassName.Substring(LIndex + 1)
@@ -555,16 +557,16 @@ begin
   Result := InternalGetLogger(AName);
 end;
 
-procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
 begin
   if ALevel < FLevel then
     Exit;
-  InternalLog(AClassName, AException, AMsg, ALevel);
+  InternalLog(AMessage, AClassName, AException, ALevel);
 end;
 
-procedure TLoggerAdapterHelper.WriteRawLine(const AMsg: string);
+procedure TLoggerAdapterHelper.WriteRawLine(const AMessage: string);
 begin
-  InternalLog(string.Empty, nil, AMsg, TLogLevel.Info);
+  InternalRaw(AMessage);
 end;
 
 { TLoggerAdapterFactory }

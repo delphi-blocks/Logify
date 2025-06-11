@@ -169,7 +169,9 @@ type
   private
     FLogger: TLogFile;
   protected
-    procedure InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel); override;
+    procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
+    procedure InternalRaw(const AMessage: string); override;
+
     function InternalGetLogger(const AName: string = ''): TObject; override;
   public
     constructor Create(const AConfig: TFileLogConfig);
@@ -704,9 +706,15 @@ begin
   Result := FLogger;
 end;
 
-procedure TLogifyAdapterFiles.InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel);
+procedure TLogifyAdapterFiles.InternalLog(const AMessage, AClassName: string;
+    AException: Exception; ALevel: TLogLevel);
 begin
-  FLogger.AddStr(FormatMsg(AClassName, AException, AMessage, ALevel));
+  FLogger.AddStr(FormatMsg(AMessage, AClassName, AException, ALevel));
+end;
+
+procedure TLogifyAdapterFiles.InternalRaw(const AMessage: string);
+begin
+  FLogger.AddStr(AMessage);
 end;
 
 { TLogifyAdapterFilesFactory }
