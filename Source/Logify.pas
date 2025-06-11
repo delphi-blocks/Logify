@@ -41,6 +41,8 @@ type
     // Standard Logging Methods
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
+
+    procedure LogFmt(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel);
     procedure LogRawLine(const AMsg: string);
 
     procedure LogTrace(const AMsg: string); overload;
@@ -197,6 +199,9 @@ type
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
 
+    procedure LogFmt(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel);
+    procedure LogRawLine(const AMsg: string);
+
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
     procedure LogInfo(const AMsg: string); overload;
@@ -211,7 +216,6 @@ type
     procedure LogError(AException: Exception; const AMsg: string); overload;
     procedure LogCritical(AException: Exception; const AMsg: string); overload;
 
-    procedure LogRawLine(const AMsg: string);
 
     function GetLoggerInstance(const AName: string): TObject;
   end;
@@ -473,6 +477,12 @@ end;
 procedure TMultiLogger.LogError(AException: Exception; const AMsg: string);
 begin
   Log(AException, AMsg, TLogLevel.Error);
+end;
+
+procedure TMultiLogger.LogFmt(const AMsg: string; const AArgs: array of const;
+  ALevel: TLogLevel);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Critical);
 end;
 
 procedure TMultiLogger.LogWarning(AException: Exception; const AMsg: string);
