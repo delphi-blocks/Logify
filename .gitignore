@@ -49,6 +49,10 @@
 *.cfg
 *.hpp
 *Resource.rc
+Win32
+Win64
+Linux64
+*.delphilsp.json
 
 # Delphi local files (user-specific info)
 *.local
