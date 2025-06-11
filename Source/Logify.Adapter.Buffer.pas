@@ -26,7 +26,7 @@ type
     FBuffer: TStringList;
     FDestination: TStrings;
   protected
-    procedure InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel); override;
+    procedure InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel); override;
     function InternalGetLogger(const AName: string = ''): TObject; override;
   public
     constructor Create;
@@ -83,12 +83,12 @@ begin
   Result := Self;
 end;
 
-procedure TLogifyAdapterBuffer.InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel);
+procedure TLogifyAdapterBuffer.InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel);
 begin
   if Assigned(FDestination) then
-    FDestination.Add(AFormattedMessage)
+    FDestination.Add(FormatMsg(AClassName, AException, AMessage, ALevel))
   else
-    FBuffer.Add(AFormattedMessage);
+    FBuffer.Add(FormatMsg(AClassName, AException, AMessage, ALevel));
 end;
 
 procedure TLogifyAdapterBuffer.SetDestination(ADestination: TStrings);

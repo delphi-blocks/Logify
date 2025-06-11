@@ -21,7 +21,8 @@ type
   /// </summary>
   TLogifyAdapterDebug = class(TLoggerAdapterHelper, ILoggerAdapter)
   protected
-    procedure InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel); override;
+    procedure InternalLog(const AClassName: string; const AException: Exception;
+        const AMessage: string; const ALevel: TLogLevel); override;
     function InternalGetLogger(const AName: string = ''): TObject; override;
   end;
 
@@ -45,9 +46,9 @@ begin
   Result := Self;
 end;
 
-procedure TLogifyAdapterDebug.InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel);
+procedure TLogifyAdapterDebug.InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel);
 begin
-  OutputDebugString(PChar(AFormattedMessage));
+  OutputDebugString(PChar(FormatMsg(AClassName, AException, AMessage, ALevel)));
 end;
 
 { TLogifyAdapterDebugFactory }

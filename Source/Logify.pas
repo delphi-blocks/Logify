@@ -104,7 +104,7 @@ type
     function FormatHeader(): string; virtual;
     function FormatSeparator(): string; virtual;
 
-    procedure InternalLog(const AClassName: string; const AException: Exception; const AFormattedMessage: string; const ALevel: TLogLevel); virtual; abstract;
+    procedure InternalLog(const AClassName: string; const AException: Exception; const AMessage: string; const ALevel: TLogLevel); virtual; abstract;
     function InternalGetLogger(const AName: string = ''): TObject; virtual; abstract;
   public
     constructor Create; overload;
@@ -559,8 +559,7 @@ procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMsg: string; AExcepti
 begin
   if ALevel < FLevel then
     Exit;
-
-  InternalLog(AClassName, AException, FormatMsg(AClassName, AException, AMsg, ALevel), ALevel);
+  InternalLog(AClassName, AException, AMsg, ALevel);
 end;
 
 procedure TLoggerAdapterHelper.WriteRawLine(const AMsg: string);

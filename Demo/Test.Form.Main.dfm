@@ -101,5 +101,6 @@ object frmMain: TfrmMain
     Height = 25
     Caption = 'LogDebug+Exception'
     TabOrder = 8
+    OnClick = btnLogDebugExClick
   end
 end

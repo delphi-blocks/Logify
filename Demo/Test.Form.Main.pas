@@ -34,6 +34,7 @@ type
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
     procedure btnLogDebugClick(Sender: TObject);
+    procedure btnLogDebugExClick(Sender: TObject);
     procedure btnLogInfoClick(Sender: TObject);
     procedure btnLogTraceClick(Sender: TObject);
     procedure btnLogTraceExClick(Sender: TObject);
@@ -68,9 +69,19 @@ begin
   Logger.LogDebug('Debugging something');
 end;
 
+procedure TfrmMain.btnLogDebugExClick(Sender: TObject);
+begin
+  try
+    raise Exception.Create('Application Error Message');
+  except
+    on E: Exception do
+      Logger.LogDebug(E, 'My Error Message');
+  end;
+end;
+
 procedure TfrmMain.btnLogInfoClick(Sender: TObject);
 begin
-  Logger.LogTrace('Some Info...');
+  Logger.LogInfo('Some Info...');
 end;
 
 procedure TfrmMain.btnLogTraceClick(Sender: TObject);
