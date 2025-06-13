@@ -18,7 +18,7 @@ uses
 
   Logify,
   Logify.Adapter.Buffer,
-  Logify.Adapter.Debug;
+  Logify.Adapter.Debug, Vcl.AppEvnts;
 
 type
   TfrmMain = class(TForm)
@@ -31,6 +31,9 @@ type
     btnLogWarning: TButton;
     btnLogTraceEx: TButton;
     btnLogDebugEx: TButton;
+    ApplicationEvents1: TApplicationEvents;
+    btnMyLogger: TButton;
+    procedure FormCreate(Sender: TObject);
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
     procedure btnLogDebugClick(Sender: TObject);
@@ -39,8 +42,10 @@ type
     procedure btnLogTraceClick(Sender: TObject);
     procedure btnLogTraceExClick(Sender: TObject);
     procedure btnLogWarningClick(Sender: TObject);
+    procedure btnMyLoggerClick(Sender: TObject);
+    procedure FormShow(Sender: TObject);
   private
-    { Private declarations }
+    MyLogger: ILogger;
   public
     { Public declarations }
   end;
@@ -50,7 +55,15 @@ var
 
 implementation
 
+uses
+  Test.Form.Second;
+
 {$R *.dfm}
+
+procedure TfrmMain.FormCreate(Sender: TObject);
+begin
+  MyLogger := TLoggerManager.GetLogger(Self.ClassType);
+end;
 
 procedure TfrmMain.btnBufferLoggerClick(Sender: TObject);
 begin
@@ -102,6 +115,19 @@ end;
 procedure TfrmMain.btnLogWarningClick(Sender: TObject);
 begin
   Logger.LogWarning('Something happened...');
+end;
+
+procedure TfrmMain.btnMyLoggerClick(Sender: TObject);
+begin
+  MyLogger.LogDebug('My Debug Message is: %s', ['Test Message']);
+
+//  MyLogger.LogCritical('MyLogger Pointer: %d', [Integer(MyLogger)]);
+//  Logger.LogCritical('Logger Pointer: %d', [Integer(Logger)]);
+end;
+
+procedure TfrmMain.FormShow(Sender: TObject);
+begin
+  frmSecond.Show;
 end;
 
 end.

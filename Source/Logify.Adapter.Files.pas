@@ -162,6 +162,10 @@ type
     property MessagesToWrite: Integer read GetMessagesToWrite;
   end;
 
+  // ***********
+  // Logify Adapter & Factory
+  // ***********
+
   /// <summary>
   ///   Adapter for the Logify framework
   /// </summary>

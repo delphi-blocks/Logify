@@ -40,10 +40,17 @@ type
   ['{FEC81C15-3142-4ECF-AED5-4E05FB1FB882}']
     // Standard Logging Methods
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
+    procedure Log(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
 
-    procedure LogFmt(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel);
     procedure LogRawLine(const AMsg: string);
+
+    procedure LogTrace(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogDebug(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogInfo(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogWarning(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogError(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogCritical(const AMsg: string; const AArgs: array of const); overload;
 
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
@@ -98,7 +105,8 @@ type
   /// </summary>
   TLoggerAdapterHelper = class(TInterfacedObject, ILoggerAdapter)
   public const
-    LOG_TEMPLATE = '%s %s %s %s %s';
+    //Date ThreadID [ClassName] Level | Message
+    LOG_TEMPLATE = '%s %s [%s] %s | %s';
     LOG_LINE_SEP = '=';
   protected
     FLevel: TLogLevel;
@@ -172,7 +180,7 @@ type
   public
     class function GetLogger<T:class>(): ILogger; overload; static;
     class function GetLogger(AClass: TClass): ILogger; overload; static;
-    class function GetLogger(AClassName: string): ILogger; overload; static;
+    class function GetLogger(const AClassName: string): ILogger; overload; static;
   end;
 
 const
@@ -191,15 +199,16 @@ uses
 type
   TMultiLogger = class(TInterfacedObject, ILogger)
   private
-    FCategory: string;
     FClassName: string;
+    FCategory: string;
+    FRegistry: TLoggerAdapterRegistry;
   public
-    constructor Create(const AClassName: string; const ACategory: string);
+    constructor Create(const AClassName, ACategory: string; ARegistry: TLoggerAdapterRegistry = nil);
 
     procedure Log(const AMsg: string; ALevel: TLogLevel); overload;
+    procedure Log(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
 
-    procedure LogFmt(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel);
     procedure LogRawLine(const AMsg: string);
 
     procedure LogTrace(const AMsg: string); overload;
@@ -208,6 +217,13 @@ type
     procedure LogWarning(const AMsg: string); overload;
     procedure LogError(const AMsg: string); overload;
     procedure LogCritical(const AMsg: string); overload;
+
+    procedure LogTrace(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogDebug(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogInfo(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogWarning(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogError(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogCritical(const AMsg: string; const AArgs: array of const); overload;
 
     procedure LogTrace(AException: Exception; const AMsg: string); overload;
     procedure LogDebug(AException: Exception; const AMsg: string); overload;
@@ -383,10 +399,14 @@ end;
 
 { TMultiLogger }
 
-constructor TMultiLogger.Create(const AClassName: string; const ACategory: string);
+constructor TMultiLogger.Create(const AClassName, ACategory: string; ARegistry: TLoggerAdapterRegistry);
 begin
   FClassName := AClassName;
   FCategory := ACategory;
+  if Assigned(ARegistry) then
+    FRegistry := ARegistry
+  else
+    FRegistry := TLoggerAdapterRegistry.Instance;
 end;
 
 procedure TMultiLogger.LogCritical(const AMsg: string);
@@ -414,17 +434,19 @@ begin
   Log(nil, AMsg, TLogLevel.Info);
 end;
 
-procedure TMultiLogger.LogRawLine(const AMsg: string);
-var
-  LLoggerAdapter: ILoggerAdapter;
-begin
-  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
-    LLoggerAdapter.WriteRawLine(AMsg);
-end;
-
 procedure TMultiLogger.LogTrace(AException: Exception; const AMsg: string);
 begin
   Log(AException, AMsg, TLogLevel.Trace);
+end;
+
+procedure TMultiLogger.LogTrace(const AMsg: string; const AArgs: array of const);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Trace);
+end;
+
+procedure TMultiLogger.LogWarning(const AMsg: string; const AArgs: array of const);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Warning);
 end;
 
 procedure TMultiLogger.LogTrace(const AMsg: string);
@@ -437,13 +459,21 @@ begin
   Log(nil, AMsg, TLogLevel.Warning);
 end;
 
+procedure TMultiLogger.LogRawLine(const AMsg: string);
+var
+  LLoggerAdapter: ILoggerAdapter;
+begin
+  for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
+    LLoggerAdapter.WriteRawLine(AMsg);
+end;
+
 function TMultiLogger.GetLoggerInstance(const AName: string): TObject;
 var
   LLogger: TObject;
   LLoggerAdapter: ILoggerAdapter;
 begin
   Result := nil;
-  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
+  for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
   begin
     LLogger := LLoggerAdapter.GetLoggerInstance(AName);
     if Assigned(LLogger) then
@@ -455,7 +485,7 @@ procedure TMultiLogger.Log(AException: Exception; const AMsg: string; ALevel: TL
 var
   LLoggerAdapter: ILoggerAdapter;
 begin
-  for LLoggerAdapter in TLoggerAdapterRegistry.Instance.GetLoggerAdapters(FCategory) do
+  for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
     LLoggerAdapter.WriteLog(FClassName, AMsg, AException, ALevel);
 end;
 
@@ -464,9 +494,24 @@ begin
   Log(nil, AMsg, ALevel);
 end;
 
+procedure TMultiLogger.Log(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel);
+begin
+  Log(nil, Format(AMsg, AArgs), ALevel);
+end;
+
 procedure TMultiLogger.LogCritical(AException: Exception; const AMsg: string);
 begin
   Log(AException, AMsg, TLogLevel.Critical);
+end;
+
+procedure TMultiLogger.LogCritical(const AMsg: string; const AArgs: array of const);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Critical);
+end;
+
+procedure TMultiLogger.LogDebug(const AMsg: string; const AArgs: array of const);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Debug);
 end;
 
 procedure TMultiLogger.LogDebug(AException: Exception; const AMsg: string);
@@ -474,15 +519,19 @@ begin
   Log(AException, AMsg, TLogLevel.Debug);
 end;
 
+procedure TMultiLogger.LogError(const AMsg: string; const AArgs: array of const);
+begin
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Error);
+end;
+
 procedure TMultiLogger.LogError(AException: Exception; const AMsg: string);
 begin
   Log(AException, AMsg, TLogLevel.Error);
 end;
 
-procedure TMultiLogger.LogFmt(const AMsg: string; const AArgs: array of const;
-  ALevel: TLogLevel);
+procedure TMultiLogger.LogInfo(const AMsg: string; const AArgs: array of const);
 begin
-  Log(nil, Format(AMsg, AArgs), TLogLevel.Critical);
+  Log(nil, Format(AMsg, AArgs), TLogLevel.Info);
 end;
 
 procedure TMultiLogger.LogWarning(AException: Exception; const AMsg: string);
@@ -514,19 +563,31 @@ begin
 end;
 
 function TLoggerAdapterHelper.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
+const
+  LOG_STD = '%s' + sLineBreak + '%s : %s';
+  LOG_STACK = LOG_STD + sLineBreak + '%s';
 var
   LStackTrace: string;
   LMsg: string;
   LClassName: string;
-  LIndex: integer;
+  LIndex: Integer;
 begin
   if AException <> nil then
   begin
     LStackTrace := AException.StackTrace;
     if LStackTrace <> '' then
-      LMsg := AMessage + #13#10 + AException.ClassName() + ': ' + AException.ToString() + #13#10 + LStackTrace
+      LMsg := Format(LOG_STACK, [
+        AMessage,
+        AException.ClassName(),
+        AException.ToString(),
+        LStackTrace
+      ])
     else
-      LMsg := AMessage + #13#10 + AException.ClassName() + ': ' + AException.ToString();
+      LMsg := Format(LOG_STD, [
+        AMessage,
+        AException.ClassName,
+        AException.ToString
+      ]);
   end
   else
     LMsg := AMessage;
@@ -535,7 +596,7 @@ begin
     Result := Format(LOG_TEMPLATE, [
       DateToISO8601(Now, False),
       TThread.CurrentThread.ThreadID.ToString,
-      '-',
+      'default',
       ALevel.ToString,
       LMsg
     ])
@@ -603,7 +664,7 @@ end;
 
 { TLoggerManager }
 
-class function TLoggerManager.GetLogger(AClassName: string): ILogger;
+class function TLoggerManager.GetLogger(const AClassName: string): ILogger;
 begin
   Result := TMultiLogger.Create(AClassName, DEFAULT_CATEGORY);
 end;

@@ -131,6 +131,10 @@
         <DCCReference Include="..\Source\Logify.Adapter.Debug.pas"/>
         <DCCReference Include="..\Source\Logify.Adapter.Files.pas"/>
         <DCCReference Include="..\Source\Logify.pas"/>
+        <DCCReference Include="Test.Form.Second.pas">
+            <Form>frmSecond</Form>
+            <FormType>dfm</FormType>
+        </DCCReference>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

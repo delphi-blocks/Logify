@@ -17,7 +17,8 @@ uses
   Logify.Adapter.Console in '..\Source\Logify.Adapter.Console.pas',
   Logify.Adapter.Debug in '..\Source\Logify.Adapter.Debug.pas',
   Logify.Adapter.Files in '..\Source\Logify.Adapter.Files.pas',
-  Logify in '..\Source\Logify.pas';
+  Logify in '..\Source\Logify.pas',
+  Test.Form.Second in 'Test.Form.Second.pas' {frmSecond};
 
 {$R *.res}
 
@@ -26,5 +27,6 @@ begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.CreateForm(TfrmMain, frmMain);
+  Application.CreateForm(TfrmSecond, frmSecond);
   Application.Run;
 end.
