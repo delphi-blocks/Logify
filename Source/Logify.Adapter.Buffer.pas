@@ -60,6 +60,7 @@ implementation
 
 constructor TLogifyAdapterBuffer.Create;
 begin
+  inherited Create;
   FBuffer := TStringList.Create;
 end;
 
