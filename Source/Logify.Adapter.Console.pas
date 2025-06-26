@@ -24,6 +24,12 @@ type
   ///   Adapter class for the Logify framework
   /// </summary>
   TLogifyAdapterConsole = class(TLoggerAdapterHelper, ILoggerAdapter)
+  {$IFDEF MSWindows}
+  strict private
+    FAllocated: boolean;
+  strict protected
+    procedure AllocateConsole; inline;
+  {$ENDIF}
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
@@ -45,6 +51,17 @@ implementation
 var
   GConsoleLock: TCriticalSection;
 
+{$IFDEF MSWindows}
+procedure TLogifyAdapterConsole.AllocateConsole;
+begin
+  if FAllocated then
+    Exit;
+
+  AllocConsole;
+  FAllocated := true;
+end;
+{$ENDIF}
+
 function TLogifyAdapterConsole.InternalGetLogger(const AName: string): TObject;
 begin
   Result := Self;
@@ -56,7 +73,7 @@ begin
   GConsoleLock.Acquire;
   try
     {$IFDEF MSWindows}
-    AllocConsole;
+    AllocateConsole;
     {$ENDIF}
     Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
   finally
@@ -69,7 +86,7 @@ begin
   GConsoleLock.Acquire;
   try
     {$IFDEF MSWindows}
-    AllocConsole;
+    AllocateConsole;
     {$ENDIF}
     Writeln(AMessage);
   finally
