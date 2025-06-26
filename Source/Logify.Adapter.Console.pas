@@ -13,7 +13,11 @@ unit Logify.Adapter.Console;
 interface
 
 uses
-  Logify, System.SysUtils;
+  {$IFDEF MSWindows}
+  Winapi.Windows,
+  {$ENDIF}
+  System.SysUtils, System.SyncObjs,
+  Logify;
 
 type
   /// <summary>
@@ -38,6 +42,9 @@ type
 
 implementation
 
+var
+  GConsoleLock: TCriticalSection;
+
 function TLogifyAdapterConsole.InternalGetLogger(const AName: string): TObject;
 begin
   Result := Self;
@@ -46,12 +53,28 @@ end;
 procedure TLogifyAdapterConsole.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);
 begin
-  Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
+  GConsoleLock.Acquire;
+  try
+    {$IFDEF MSWindows}
+    AllocConsole;
+    {$ENDIF}
+    Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
+  finally
+    GConsoleLock.Release;
+  end;
 end;
 
 procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string);
 begin
-  Writeln(AMessage);
+  GConsoleLock.Acquire;
+  try
+    {$IFDEF MSWindows}
+    AllocConsole;
+    {$ENDIF}
+    Writeln(AMessage);
+  finally
+    GConsoleLock.Release;
+  end;
 end;
 
 { TLogifyAdapterConsoleFactory }
@@ -67,4 +90,8 @@ begin
   Result := TLogifyAdapterConsole.Create();
 end;
 
+initialization
+  GConsoleLock := TCriticalSection.Create;
+finalization
+  FreeAndNil(GConsoleLock);
 end.
