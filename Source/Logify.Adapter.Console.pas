@@ -13,13 +13,23 @@ unit Logify.Adapter.Console;
 interface
 
 uses
-  Logify, System.SysUtils;
+  {$IFDEF MSWindows}
+  Winapi.Windows,
+  {$ENDIF}
+  System.SysUtils,
+  Logify;
 
 type
   /// <summary>
   ///   Adapter class for the Logify framework
   /// </summary>
   TLogifyAdapterConsole = class(TLoggerAdapterHelper, ILoggerAdapter)
+  {$IFDEF MSWindows}
+  strict private
+    FAllocated: boolean;
+  strict protected
+    procedure AllocateConsole; inline;
+  {$ENDIF}
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
@@ -38,6 +48,17 @@ type
 
 implementation
 
+{$IFDEF MSWindows}
+procedure TLogifyAdapterConsole.AllocateConsole;
+begin
+  if FAllocated then
+    Exit;
+
+  AllocConsole;
+  FAllocated := true;
+end;
+{$ENDIF}
+
 function TLogifyAdapterConsole.InternalGetLogger(const AName: string): TObject;
 begin
   Result := Self;
@@ -46,11 +67,19 @@ end;
 procedure TLogifyAdapterConsole.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);
 begin
+  {$IFDEF MSWindows}
+  AllocConsole;
+  {$ENDIF}
+
   Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
 end;
 
 procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string);
 begin
+  {$IFDEF MSWindows}
+  AllocConsole;
+  {$ENDIF}
+
   Writeln(AMessage);
 end;
 
