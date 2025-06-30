@@ -48,6 +48,12 @@ type
 
 implementation
 
+uses
+  System.SyncObjs;
+
+var
+  GConsoleLock: TCriticalSection;
+
 {$IFDEF MSWindows}
 procedure TLogifyAdapterConsole.AllocateConsole;
 begin
@@ -67,20 +73,26 @@ end;
 procedure TLogifyAdapterConsole.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);
 begin
-  {$IFDEF MSWindows}
-  AllocConsole;
-  {$ENDIF}
+  GConsoleLock.Acquire;
+  try
+    {$IFDEF MSWindows}
+    AllocateConsole;
+    {$ENDIF}
 
-  Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
+    Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
+  finally GConsoleLock.Release; end;
 end;
 
 procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string);
 begin
-  {$IFDEF MSWindows}
-  AllocConsole;
-  {$ENDIF}
+  GConsoleLock.Acquire;
+  try
+    {$IFDEF MSWindows}
+    AllocateConsole;
+    {$ENDIF}
 
-  Writeln(AMessage);
+    Writeln(AMessage);
+  finally GConsoleLock.Release; end;
 end;
 
 { TLogifyAdapterConsoleFactory }
@@ -96,4 +108,8 @@ begin
   Result := TLogifyAdapterConsole.Create();
 end;
 
+initialization
+  GConsoleLock := TCriticalSection.Create;
+finalization
+  FreeAndNil(GConsoleLock);
 end.
