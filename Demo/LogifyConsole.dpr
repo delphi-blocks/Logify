@@ -23,7 +23,7 @@ end;
 
 begin
   TLoggerAdapterRegistry.Instance.RegisterFactory(
-    TLogifyAdapterConsoleFactory.CreateAdapterFactory('Console log'));
+    TLogifyAdapterConsoleFactory.CreateAdapterFactory('Console log', TLogLevel.Info));
   try
     Logger.LogInfo('Hello, console!');
     var th1 := TThread.CreateAnonymousThread(Thread1Proc);

@@ -4,9 +4,9 @@ interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
 
-  Logify, Vcl.StdCtrls;
+  Logify;
 
 type
   TfrmSecond = class(TForm)
@@ -28,7 +28,7 @@ implementation
 
 procedure TfrmSecond.Button1Click(Sender: TObject);
 begin
-  MyLogger.LogDebug('Debug Log from the second from (MyLogger)');
+  MyLogger.LogDebug('Debug Log from the second form (MyLogger)');
 
   //MyLogger.LogDebug('My Logger Pointer: %d', [Integer(MyLogger)]);
 end;

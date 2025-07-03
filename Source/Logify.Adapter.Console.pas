@@ -40,19 +40,18 @@ type
   ///   AdapterFactory class for the Logify framework
   /// </summary>
   TLogifyAdapterConsoleFactory = class(TLoggerAdapterFactory)
+  private
+    FLevel: TLogLevel;
   public
-    class function CreateAdapterFactory(const AName: string): TLogifyAdapterConsoleFactory;
+    class function CreateAdapterFactory(ALevel: TLogLevel): TLogifyAdapterConsoleFactory; overload;
+    class function CreateAdapterFactory(const AName: string; ALevel: TLogLevel): TLogifyAdapterConsoleFactory; overload;
   public
     function CreateLoggerAdapter: ILoggerAdapter; override;
+
+    property Level: TLogLevel read FLevel write FLevel;
   end;
 
 implementation
-
-uses
-  System.SyncObjs;
-
-var
-  GConsoleLock: TCriticalSection;
 
 {$IFDEF MSWindows}
 procedure TLogifyAdapterConsole.AllocateConsole;
@@ -73,34 +72,34 @@ end;
 procedure TLogifyAdapterConsole.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);
 begin
-  GConsoleLock.Acquire;
-  try
-    {$IFDEF MSWindows}
-    AllocateConsole;
-    {$ENDIF}
+  {$IFDEF MSWindows}
+  AllocConsole;
+  {$ENDIF}
 
-    Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
-  finally GConsoleLock.Release; end;
+  Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
 end;
 
 procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string);
 begin
-  GConsoleLock.Acquire;
-  try
-    {$IFDEF MSWindows}
-    AllocateConsole;
-    {$ENDIF}
+  {$IFDEF MSWindows}
+  AllocConsole;
+  {$ENDIF}
 
-    Writeln(AMessage);
-  finally GConsoleLock.Release; end;
+  Writeln(AMessage);
 end;
 
-{ TLogifyAdapterConsoleFactory }
-
-class function TLogifyAdapterConsoleFactory.CreateAdapterFactory(const AName: string): TLogifyAdapterConsoleFactory;
+class function TLogifyAdapterConsoleFactory.CreateAdapterFactory(
+  const AName: string; ALevel: TLogLevel): TLogifyAdapterConsoleFactory;
 begin
   Result := TLogifyAdapterConsoleFactory.Create();
   Result.Name := AName;
+  Result.Level := ALevel;
+end;
+
+class function TLogifyAdapterConsoleFactory.CreateAdapterFactory(
+  ALevel: TLogLevel): TLogifyAdapterConsoleFactory;
+begin
+  Result := CreateAdapterFactory('', ALevel);
 end;
 
 function TLogifyAdapterConsoleFactory.CreateLoggerAdapter: ILoggerAdapter;
@@ -108,8 +107,4 @@ begin
   Result := TLogifyAdapterConsole.Create();
 end;
 
-initialization
-  GConsoleLock := TCriticalSection.Create;
-finalization
-  FreeAndNil(GConsoleLock);
 end.

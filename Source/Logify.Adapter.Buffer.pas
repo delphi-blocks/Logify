@@ -13,18 +13,18 @@ unit Logify.Adapter.Buffer;
 interface
 
 uses
-  System.Classes, 
+  System.Classes,
   System.SysUtils,
   Logify;
 
 type
   /// <summary>
-  ///   Adapter class for the Logify framework
+  ///   Adapter class for the Buffer Logger
   /// </summary>
   TLogifyAdapterBuffer = class(TLoggerAdapterHelper, ILoggerAdapter)
   private
+    FTarget: TStrings;
     FBuffer: TStringList;
-    FDestination: TStrings;
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
@@ -35,9 +35,9 @@ type
     destructor Destroy; override;
 
     // Non-interface methods
-    procedure Flush(ADestination: ILogger); overload;
-    procedure Flush(ADestination: TStrings); overload;
-    procedure SetDestination(ADestination: TStrings);
+    procedure Flush(ATarget: ILogger); overload;
+    procedure Flush(ATarget: TStrings); overload;
+    procedure SetTarget(ATarget: TStrings);
   end;
 
   /// <summary>
@@ -45,13 +45,16 @@ type
   /// </summary>
   TLogifyAdapterBufferFactory = class(TLoggerAdapterFactory)
   private
-    FDest: TStrings;
+    FLevel: TLogLevel;
+    FTarget: TStrings;
   public
-    class function CreateAdapterFactory(ADest: TStrings): TLogifyAdapterBufferFactory; overload;
-    class function CreateAdapterFactory(const AName: string; ADest: TStrings): TLogifyAdapterBufferFactory; overload;
+    class function CreateAdapterFactory(ALevel: TLogLevel; ATarget: TStrings): TLogifyAdapterBufferFactory; overload;
+    class function CreateAdapterFactory(const AName: string; ALevel: TLogLevel; ATarget: TStrings): TLogifyAdapterBufferFactory; overload;
   public
     function CreateLoggerAdapter: ILoggerAdapter; override;
-    property Dest: TStrings read FDest write FDest;
+
+    property Level: TLogLevel read FLevel write FLevel;
+    property Target: TStrings read FTarget write FTarget;
   end;
 
 implementation
@@ -70,15 +73,15 @@ begin
   inherited;
 end;
 
-procedure TLogifyAdapterBuffer.Flush(ADestination: ILogger);
+procedure TLogifyAdapterBuffer.Flush(ATarget: ILogger);
 begin
   for var Msg in FBuffer do
-    ADestination.LogRawLine(Msg);
+    ATarget.LogRawLine(Msg);
 end;
 
-procedure TLogifyAdapterBuffer.Flush(ADestination: TStrings);
+procedure TLogifyAdapterBuffer.Flush(ATarget: TStrings);
 begin
-  ADestination.AddStrings(FBuffer);
+  ATarget.AddStrings(FBuffer);
 end;
 
 function TLogifyAdapterBuffer.InternalGetLogger(const AName: string): TObject;
@@ -89,37 +92,38 @@ end;
 procedure TLogifyAdapterBuffer.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);
 begin
-  if Assigned(FDestination) then
-    FDestination.Add(FormatMsg(AMessage, AClassName, AException, ALevel))
+  if Assigned(FTarget) then
+    FTarget.Add(FormatMsg(AMessage, AClassName, AException, ALevel))
   else
     FBuffer.Add(FormatMsg(AMessage, AClassName, AException, ALevel));
 end;
 
 procedure TLogifyAdapterBuffer.InternalRaw(const AMessage: string);
 begin
-  if Assigned(FDestination) then
-    FDestination.Add(AMessage)
+  if Assigned(FTarget) then
+    FTarget.Add(AMessage)
   else
     FBuffer.Add(AMessage);
 end;
 
-procedure TLogifyAdapterBuffer.SetDestination(ADestination: TStrings);
+procedure TLogifyAdapterBuffer.SetTarget(ATarget: TStrings);
 begin
-  FDestination := ADestination;
+  FTarget := ATarget;
 end;
 
-{ TLogifyAdapterBufferFactory }
-
-class function TLogifyAdapterBufferFactory.CreateAdapterFactory(ADest: TStrings): TLogifyAdapterBufferFactory;
-begin
-  Result := CreateAdapterFactory('', ADest);
-end;
-
-class function TLogifyAdapterBufferFactory.CreateAdapterFactory(const AName: string; ADest: TStrings): TLogifyAdapterBufferFactory;
+class function TLogifyAdapterBufferFactory.CreateAdapterFactory(const AName: string;
+  ALevel: TLogLevel; ATarget: TStrings): TLogifyAdapterBufferFactory;
 begin
   Result := TLogifyAdapterBufferFactory.Create();
   Result.Name := AName;
-  Result.Dest := ADest;
+  Result.Level := ALevel;
+  Result.Target := ATarget;
+end;
+
+class function TLogifyAdapterBufferFactory.CreateAdapterFactory(ALevel: TLogLevel;
+  ATarget: TStrings): TLogifyAdapterBufferFactory;
+begin
+  Result := CreateAdapterFactory('', ALevel, ATarget);
 end;
 
 function TLogifyAdapterBufferFactory.CreateLoggerAdapter: ILoggerAdapter;
@@ -127,7 +131,8 @@ var
   LLogger: TLogifyAdapterBuffer;
 begin
   LLogger := TLogifyAdapterBuffer.Create();
-  LLogger.SetDestination(FDest);
+  LLogger.Level := FLevel;
+  LLogger.SetTarget(FTarget);
 
   Result := LLogger;
 end;

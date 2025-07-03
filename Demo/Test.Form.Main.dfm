@@ -3,8 +3,8 @@ object frmMain: TfrmMain
   Top = 0
   Margins.Left = 8
   Caption = 'Logify Demo'
-  ClientHeight = 413
-  ClientWidth = 925
+  ClientHeight = 440
+  ClientWidth = 919
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -13,24 +13,19 @@ object frmMain: TfrmMain
   Font.Style = []
   OnCreate = FormCreate
   OnShow = FormShow
-  DesignSize = (
-    925
-    413)
   TextHeight = 15
-  object btnLogTrace: TButton
-    Left = 665
-    Top = 8
-    Width = 75
+  object btnLog: TButton
+    Left = 207
+    Top = 16
+    Width = 101
     Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogTrace'
+    Caption = 'Log Message'
     TabOrder = 0
-    OnClick = btnLogTraceClick
-    ExplicitLeft = 725
+    OnClick = btnLogClick
   end
   object btnDebugLogger: TButton
-    Left = 8
-    Top = 8
+    Left = 448
+    Top = 16
     Width = 137
     Height = 25
     Caption = 'Register Debug Logger'
@@ -40,9 +35,9 @@ object frmMain: TfrmMain
   object memoLog: TMemo
     AlignWithMargins = True
     Left = 8
-    Top = 140
-    Width = 909
-    Height = 265
+    Top = 160
+    Width = 903
+    Height = 272
     Margins.Left = 8
     Margins.Right = 8
     Margins.Bottom = 8
@@ -55,84 +50,111 @@ object frmMain: TfrmMain
     Font.Style = []
     ParentFont = False
     TabOrder = 2
-    ExplicitWidth = 724
-    ExplicitHeight = 354
   end
   object btnBufferLogger: TButton
-    Left = 8
-    Top = 39
+    Left = 448
+    Top = 47
     Width = 137
     Height = 25
     Caption = 'Register Buffer Logger'
     TabOrder = 3
     OnClick = btnBufferLoggerClick
   end
-  object btnLogDebug: TButton
-    Left = 665
-    Top = 39
-    Width = 75
+  object btnLogException: TButton
+    Left = 207
+    Top = 47
+    Width = 101
     Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogDebug'
+    Caption = 'Log Exception'
     TabOrder = 4
-    OnClick = btnLogDebugClick
-    ExplicitLeft = 725
+    OnClick = btnLogExceptionClick
   end
-  object btnLogInfo: TButton
-    Left = 665
-    Top = 70
-    Width = 75
+  object btnLogFmt: TButton
+    Left = 207
+    Top = 78
+    Width = 101
     Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogInfo'
+    Caption = 'Log Formatted'
     TabOrder = 5
-    OnClick = btnLogInfoClick
-    ExplicitLeft = 725
-  end
-  object btnLogWarning: TButton
-    Left = 665
-    Top = 104
-    Width = 75
-    Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogWarning'
-    TabOrder = 6
-    OnClick = btnLogWarningClick
-    ExplicitLeft = 725
-  end
-  object btnLogTraceEx: TButton
-    Left = 772
-    Top = 8
-    Width = 145
-    Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogTrace+Exception'
-    TabOrder = 7
-    OnClick = btnLogTraceExClick
-    ExplicitLeft = 832
-  end
-  object btnLogDebugEx: TButton
-    Left = 772
-    Top = 39
-    Width = 145
-    Height = 25
-    Anchors = [akTop, akRight]
-    Caption = 'LogDebug+Exception'
-    TabOrder = 8
-    OnClick = btnLogDebugExClick
-    ExplicitLeft = 832
+    OnClick = btnLogFmtClick
   end
   object btnMyLogger: TButton
-    Left = 312
-    Top = 8
-    Width = 105
+    Left = 207
+    Top = 109
+    Width = 101
     Height = 25
     Caption = 'MyLogger Test'
-    TabOrder = 9
+    TabOrder = 6
     OnClick = btnMyLoggerClick
   end
+  object grpLevel: TGroupBox
+    Left = 8
+    Top = 8
+    Width = 185
+    Height = 129
+    Caption = 'Log Level '
+    TabOrder = 7
+    object rbLevelTrace: TRadioButton
+      Left = 16
+      Top = 30
+      Width = 113
+      Height = 17
+      Caption = 'Trace'
+      Checked = True
+      TabOrder = 0
+      TabStop = True
+    end
+    object rbLevelDebug: TRadioButton
+      Left = 16
+      Top = 53
+      Width = 113
+      Height = 17
+      Caption = 'Debug'
+      TabOrder = 1
+    end
+    object rbLevelInfo: TRadioButton
+      Left = 16
+      Top = 76
+      Width = 113
+      Height = 17
+      Caption = 'Info'
+      TabOrder = 2
+    end
+    object rbLevelWarning: TRadioButton
+      Left = 96
+      Top = 30
+      Width = 113
+      Height = 17
+      Caption = 'Warning'
+      TabOrder = 3
+    end
+    object rbLevelError: TRadioButton
+      Left = 96
+      Top = 53
+      Width = 113
+      Height = 17
+      Caption = 'Error'
+      TabOrder = 4
+    end
+    object rbLevelCritical: TRadioButton
+      Left = 96
+      Top = 76
+      Width = 113
+      Height = 17
+      Caption = 'Critical'
+      TabOrder = 5
+    end
+    object rbLevelOff: TRadioButton
+      Left = 56
+      Top = 99
+      Width = 113
+      Height = 17
+      Caption = 'Off'
+      TabOrder = 6
+    end
+  end
   object ApplicationEvents1: TApplicationEvents
-    Left = 328
-    Top = 96
+    Left = 464
+    Top = 296
   end
 end

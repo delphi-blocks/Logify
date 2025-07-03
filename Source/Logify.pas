@@ -630,6 +630,8 @@ end;
 
 procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
 begin
+  if ALevel = TLogLevel.Off then
+    Exit;
   if ALevel < FLevel then
     Exit;
   InternalLog(AMessage, AClassName, AException, ALevel);

@@ -14,38 +14,43 @@ interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.AppEvnts,
 
   Logify,
   Logify.Adapter.Buffer,
-  Logify.Adapter.Debug, Vcl.AppEvnts;
+  Logify.Adapter.Console,
+  Logify.Adapter.Debug;
 
 type
   TfrmMain = class(TForm)
-    btnLogTrace: TButton;
+    btnLog: TButton;
     btnDebugLogger: TButton;
     memoLog: TMemo;
     btnBufferLogger: TButton;
-    btnLogDebug: TButton;
-    btnLogInfo: TButton;
-    btnLogWarning: TButton;
-    btnLogTraceEx: TButton;
-    btnLogDebugEx: TButton;
+    btnLogException: TButton;
+    btnLogFmt: TButton;
     ApplicationEvents1: TApplicationEvents;
     btnMyLogger: TButton;
+    grpLevel: TGroupBox;
+    rbLevelTrace: TRadioButton;
+    rbLevelDebug: TRadioButton;
+    rbLevelInfo: TRadioButton;
+    rbLevelWarning: TRadioButton;
+    rbLevelError: TRadioButton;
+    rbLevelCritical: TRadioButton;
+    rbLevelOff: TRadioButton;
     procedure FormCreate(Sender: TObject);
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
-    procedure btnLogDebugClick(Sender: TObject);
-    procedure btnLogDebugExClick(Sender: TObject);
-    procedure btnLogInfoClick(Sender: TObject);
-    procedure btnLogTraceClick(Sender: TObject);
-    procedure btnLogTraceExClick(Sender: TObject);
-    procedure btnLogWarningClick(Sender: TObject);
+    procedure btnLogFmtClick(Sender: TObject);
+    procedure btnLogClick(Sender: TObject);
+    procedure btnLogExceptionClick(Sender: TObject);
     procedure btnMyLoggerClick(Sender: TObject);
     procedure FormShow(Sender: TObject);
   private
     MyLogger: ILogger;
+
+    function GetLevel: TLogLevel;
   public
     { Public declarations }
   end;
@@ -68,58 +73,40 @@ end;
 procedure TfrmMain.btnBufferLoggerClick(Sender: TObject);
 begin
   TLoggerAdapterRegistry.Instance.RegisterFactory(
-    TLogifyAdapterBufferFactory.CreateAdapterFactory(memoLog.Lines));
+    TLogifyAdapterBufferFactory.CreateAdapterFactory(
+      TLogLevel.Trace, memoLog.Lines));
 end;
 
 procedure TfrmMain.btnDebugLoggerClick(Sender: TObject);
 begin
   TLoggerAdapterRegistry.Instance.RegisterFactory(
-    TLogifyAdapterDebugFactory.CreateAdapterFactory);
+    TLogifyAdapterDebugFactory.CreateAdapterFactory(
+      TLogLevel.Trace));
 end;
 
-procedure TfrmMain.btnLogDebugClick(Sender: TObject);
+procedure TfrmMain.btnLogFmtClick(Sender: TObject);
 begin
-  Logger.LogDebug('Debugging something');
+  Logger.Log('Formatted Log Message %d', [Random(100)], GetLevel);
 end;
 
-procedure TfrmMain.btnLogDebugExClick(Sender: TObject);
+procedure TfrmMain.btnLogClick(Sender: TObject);
 begin
-  try
-    raise Exception.Create('Application Error Message');
-  except
-    on E: Exception do
-      Logger.LogDebug(E, 'My Error Message');
-  end;
+  Logger.Log('Log Message', GetLevel);
 end;
 
-procedure TfrmMain.btnLogInfoClick(Sender: TObject);
-begin
-  Logger.LogInfo('Some Info...');
-end;
-
-procedure TfrmMain.btnLogTraceClick(Sender: TObject);
-begin
-  Logger.LogTrace('Tracing something');
-end;
-
-procedure TfrmMain.btnLogTraceExClick(Sender: TObject);
+procedure TfrmMain.btnLogExceptionClick(Sender: TObject);
 begin
   try
     raise Exception.Create('Application Error Message');
   except
     on E: Exception do
-      Logger.LogTrace(E, 'My Error Message');
+      Logger.Log(E, 'My Error Message', GetLevel);
   end;
-end;
-
-procedure TfrmMain.btnLogWarningClick(Sender: TObject);
-begin
-  Logger.LogWarning('Something happened...');
 end;
 
 procedure TfrmMain.btnMyLoggerClick(Sender: TObject);
 begin
-  MyLogger.LogDebug('My Debug Message is: %s', ['Test Message']);
+  MyLogger.Log('My Message is: %s', ['Test Message'], GetLevel);
 
 //  MyLogger.LogCritical('MyLogger Pointer: %d', [Integer(MyLogger)]);
 //  Logger.LogCritical('Logger Pointer: %d', [Integer(Logger)]);
@@ -128,6 +115,30 @@ end;
 procedure TfrmMain.FormShow(Sender: TObject);
 begin
   frmSecond.Show;
+end;
+
+function TfrmMain.GetLevel: TLogLevel;
+begin
+  if rbLevelTrace.Checked then
+    Exit(TLogLevel.Trace);
+
+  if rbLevelDebug.Checked then
+    Exit(TLogLevel.Debug);
+
+  if rbLevelInfo.Checked then
+    Exit(TLogLevel.Info);
+
+  if rbLevelWarning.Checked then
+    Exit(TLogLevel.Warning);
+
+  if rbLevelError.Checked then
+    Exit(TLogLevel.Error);
+
+  if rbLevelCritical.Checked then
+    Exit(TLogLevel.Critical);
+
+  if rbLevelOff.Checked then
+    Exit(TLogLevel.Off);
 end;
 
 end.

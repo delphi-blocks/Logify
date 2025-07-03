@@ -32,7 +32,6 @@ type
   TFileLogConfig = record
   private const
     DATETIME_FILENAME = 'yyyymmdd_hhmmss';
-  public type
   private
     FLogType: TLogType;
     FAppend: Boolean;
