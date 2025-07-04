@@ -17,6 +17,7 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.AppEvnts,
 
   Logify,
+  Logify.Adapter.Files,
   Logify.Adapter.Buffer,
   Logify.Adapter.Console,
   Logify.Adapter.Debug;
@@ -39,9 +40,11 @@ type
     rbLevelError: TRadioButton;
     rbLevelCritical: TRadioButton;
     rbLevelOff: TRadioButton;
+    btnFileLogger: TButton;
     procedure FormCreate(Sender: TObject);
     procedure btnBufferLoggerClick(Sender: TObject);
     procedure btnDebugLoggerClick(Sender: TObject);
+    procedure btnFileLoggerClick(Sender: TObject);
     procedure btnLogFmtClick(Sender: TObject);
     procedure btnLogClick(Sender: TObject);
     procedure btnLogExceptionClick(Sender: TObject);
@@ -84,6 +87,21 @@ begin
       TLogLevel.Trace));
 end;
 
+procedure TfrmMain.btnFileLoggerClick(Sender: TObject);
+begin
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TLogifyAdapterFilesFactory.CreateAdapterFactory(
+      'default', procedure(var AConfig: TFileLogConfig)
+      begin
+        AConfig.Level := TLogLevel.Trace;
+        AConfig.Append := True;
+        AConfig.SetLogName('filetest');
+        AConfig.Path := '../../';
+        AConfig.Ext := 'log';
+      end
+  ));
+end;
+
 procedure TfrmMain.btnLogFmtClick(Sender: TObject);
 begin
   Logger.Log('Formatted Log Message %d', [Random(100)], GetLevel);
@@ -119,6 +137,8 @@ end;
 
 function TfrmMain.GetLevel: TLogLevel;
 begin
+  Result := TLogLevel.Trace;
+
   if rbLevelTrace.Checked then
     Exit(TLogLevel.Trace);
 

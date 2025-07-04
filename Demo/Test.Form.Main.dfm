@@ -153,6 +153,15 @@ object frmMain: TfrmMain
       TabOrder = 6
     end
   end
+  object btnFileLogger: TButton
+    Left = 448
+    Top = 78
+    Width = 137
+    Height = 25
+    Caption = 'Register File Logger'
+    TabOrder = 8
+    OnClick = btnFileLoggerClick
+  end
   object ApplicationEvents1: TApplicationEvents
     Left = 464
     Top = 296

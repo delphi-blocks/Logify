@@ -57,6 +57,15 @@ type
       const AExt: string = '.log';
       ARotateItems: Integer = 10; ARotateSize: Integer = 10485760): TFileLogConfig; static;
   public
+    procedure SetLogSingle(ALevel: TLogLevel; AAppend: Boolean = True;
+      const AName: string = ''; const APath: string = '.\logs';
+      const AExt: string = '.log');
+
+    procedure SetLogRotate(ALevel: TLogLevel; AAppend: Boolean = True;
+      const AName: string = ''; const APath: string = '.\logs';
+      const AExt: string = '.log';
+      ARotateItems: Integer = 10; ARotateSize: Integer = 10485760);
+
     procedure SetLogName(const ALogName: string);
     function IsRotate: Boolean;
     function GetFileName: string;
@@ -73,6 +82,7 @@ type
     property RotateSize: Integer read FRotateSize write FRotateSize;
     property RotateItems: Integer read FRotateItems write FRotateItems;
   end;
+  TFileLogConfProc = reference to procedure (var AConfig: TFileLogConfig);
 
   /// <summary>
   ///   Simple Log to file class for the Logify framework
@@ -195,6 +205,8 @@ type
   public
     class function CreateAdapterFactory(const AConfig: TFileLogConfig): TLogifyAdapterFilesFactory; overload;
     class function CreateAdapterFactory(const AName: string; const AConfig: TFileLogConfig): TLogifyAdapterFilesFactory; overload;
+
+    class function CreateAdapterFactory(const AName: string; AConfProc: TFileLogConfProc): TLogifyAdapterFilesFactory; overload;
   public
     property Config: TFileLogConfig read FConfig write FConfig;
     function CreateLoggerAdapter: ILoggerAdapter; override;
@@ -612,26 +624,13 @@ class function TFileLogConfig.NewRotate(ALevel: TLogLevel; AAppend: Boolean;
   const AName: string; const APath: string; const AExt: string;
   ARotateItems: Integer; ARotateSize: Integer): TFileLogConfig;
 begin
-  Result.LogType := TLogType.Rotate;
-  Result.Level := ALevel;
-  Result.Append := AAppend;
-  Result.SetLogName(AName);
-  Result.Path := APath;
-  Result.Ext := AExt;
-
-  Result.RotateItems := ARotateItems;
-  Result.RotateSize := ARotateSize;
+  Result.SetLogRotate(ALevel, AAppend, AName, APath, AExt, ARotateItems, ARotateSize);
 end;
 
 class function TFileLogConfig.NewSingle(ALevel: TLogLevel; AAppend: Boolean;
   const AName, APath, AExt: string): TFileLogConfig;
 begin
-  Result.LogType := TLogType.Single;
-  Result.Level := ALevel;
-  Result.Append := AAppend;
-  Result.SetLogName(AName);
-  Result.Path := APath;
-  Result.Ext := AExt;
+  Result.SetLogSingle(ALevel, AAppend, AName, APath, AExt);
 end;
 
 procedure TFileLogConfig.SetExt(const Value: string);
@@ -666,6 +665,34 @@ begin
   end
   else
     FName := ALogName;
+end;
+
+procedure TFileLogConfig.SetLogRotate(ALevel: TLogLevel; AAppend: Boolean =
+    True; const AName: string = ''; const APath: string = '.\logs'; const AExt:
+    string = '.log'; ARotateItems: Integer = 10; ARotateSize: Integer =
+    10485760);
+begin
+  Self.LogType := TLogType.Rotate;
+  Self.Level := ALevel;
+  Self.Append := AAppend;
+  Self.SetLogName(AName);
+  Self.Path := APath;
+  Self.Ext := AExt;
+
+  Self.RotateItems := ARotateItems;
+  Self.RotateSize := ARotateSize;
+end;
+
+procedure TFileLogConfig.SetLogSingle(ALevel: TLogLevel; AAppend: Boolean =
+    True; const AName: string = ''; const APath: string = '.\logs'; const AExt:
+    string = '.log');
+begin
+  Self.LogType := TLogType.Single;
+  Self.Level := ALevel;
+  Self.Append := AAppend;
+  Self.SetLogName(AName);
+  Self.Path := APath;
+  Self.Ext := AExt;
 end;
 
 { TLogifyAdapterFiles }
@@ -733,6 +760,16 @@ begin
   Result := TLogifyAdapterFilesFactory.Create();
   Result.Name := AName;
   Result.Config := AConfig;
+end;
+
+class function TLogifyAdapterFilesFactory.CreateAdapterFactory(const AName:
+    string; AConfProc: TFileLogConfProc): TLogifyAdapterFilesFactory;
+var
+  LConfig: TFileLogConfig;
+begin
+  LConfig := TFileLogConfig.NewSingle(TLogLevel.Info);
+  AConfProc(LConfig);
+  Result := CreateAdapterFactory(AName, LConfig);
 end;
 
 function TLogifyAdapterFilesFactory.CreateLoggerAdapter: ILoggerAdapter;
