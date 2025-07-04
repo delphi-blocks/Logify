@@ -35,6 +35,31 @@ type
   end;
 
   /// <summary>
+  ///   Configuration for loggerpro
+  /// </summary>
+  TLoggerProConfig = record
+  private
+    FAppenders: TArray<ILogAppender>;
+    FEventsHandlers: TLoggerProEventsHandler;
+    FLogType: TLogType;
+    FTag: string;
+    FRawLogLevel: TLogType;
+  public
+    property Appenders: TArray<ILogAppender> read FAppenders write FAppenders;
+    property EventsHandlers: TLoggerProEventsHandler read FEventsHandlers write FEventsHandlers;
+    property LogType: TLogType read FLogType write FLogType;
+    property Tag: string read FTag write FTag;
+    property RawLogLevel: TLogType read FRawLogLevel write FRawLogLevel;
+
+    constructor Create(ALogType: TLogType);
+  end;
+
+  /// <summary>
+  ///   Procedure for anonymous method configuration
+  /// </summary>
+  TFileLogConfProc = reference to procedure (var AConfig: TLoggerProConfig);
+
+  /// <summary>
   ///   LoggerPro adapter factory class for the Logify framework.
   ///   Create an instance of this class using one of the CreateAdapterFactory methods.
   /// </summary>
@@ -68,6 +93,11 @@ type
     /// <param name="aRawLogType">The log level to be used with raw logging.</param>
     /// <returns>A new instance of the LoggerPro adapter factory.</returns>
     class function CreateAdapterFactory(aLogger: ILogWriter; const aTag: string = ''; aRawLogType: TLogType = TLogType.Info): TLogifyAdapterLoggerProFactory; overload;
+
+    /// <summary>
+    ///   Creates a LoggerPro adapter factory with the anonymous method configuration
+    /// </summary>
+    class function CreateAdapterFactory(AConfProc: TFileLogConfProc): TLogifyAdapterLoggerProFactory; overload;
   public
     function CreateLoggerAdapter: ILoggerAdapter; override;
   end;
@@ -117,6 +147,22 @@ begin
   Result.FRawLogType := aRawLogType;
 end;
 
+class function TLogifyAdapterLoggerProFactory.CreateAdapterFactory(
+  AConfProc: TFileLogConfProc): TLogifyAdapterLoggerProFactory;
+var
+  LConfig: TLoggerProConfig;
+begin
+  LConfig := TLoggerProConfig.Create(TLogType.Info);
+  AConfProc(LConfig);
+  Result := CreateAdapterFactory(
+    LConfig.Appenders,
+    LConfig.EventsHandlers,
+    LConfig.LogType,
+    LConfig.Tag,
+    LConfig.RawLogLevel
+  );
+end;
+
 function TLogifyAdapterLoggerProFactory.CreateLoggerAdapter: ILoggerAdapter;
 var
   LLogger: ILogWriter;
@@ -162,6 +208,17 @@ procedure TLogifyAdapterLoggerPro.InternalRaw(const AMessage: string);
 begin
   inherited;
   FLogger.Log(FRawLogType, AMessage, FTag);
+end;
+
+{ TLoggerProConfig }
+
+constructor TLoggerProConfig.Create(ALogType: TLogType);
+begin
+  FAppenders := nil;
+  FEventsHandlers := nil;
+  FLogType := ALogType;
+  FTag := '';
+  FRawLogLevel := ALogType;
 end;
 
 end.
