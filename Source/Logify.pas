@@ -21,7 +21,7 @@ type
   ELogifyException = class(Exception);
 
   /// <summary>
-  ///   Logging levels
+  ///   Logify Logging levels
   /// </summary>
   TLogLevel = (Trace, Debug, Info, Warning, Error, Critical, Off);
   TLogLevelHelper = record helper for TLogLevel
@@ -45,19 +45,19 @@ type
 
     procedure LogRawLine(const AMsg: string);
 
-    procedure LogTrace(const AMsg: string; const AArgs: array of const); overload;
-    procedure LogDebug(const AMsg: string; const AArgs: array of const); overload;
-    procedure LogInfo(const AMsg: string; const AArgs: array of const); overload;
-    procedure LogWarning(const AMsg: string; const AArgs: array of const); overload;
-    procedure LogError(const AMsg: string; const AArgs: array of const); overload;
-    procedure LogCritical(const AMsg: string; const AArgs: array of const); overload;
-
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
     procedure LogInfo(const AMsg: string); overload;
     procedure LogWarning(const AMsg: string); overload;
     procedure LogError(const AMsg: string); overload;
     procedure LogCritical(const AMsg: string); overload;
+
+    procedure LogTrace(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogDebug(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogInfo(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogWarning(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogError(const AMsg: string; const AArgs: array of const); overload;
+    procedure LogCritical(const AMsg: string; const AArgs: array of const); overload;
 
     procedure LogTrace(AException: Exception; const AMsg: string); overload;
     procedure LogDebug(AException: Exception; const AMsg: string); overload;
@@ -72,7 +72,19 @@ type
   /// </summary>
   ILoggerAdapter = interface(IInterface)
   ['{3593B5F9-EACB-403F-90DA-A63C32AD4E33}']
+
+    /// <summary>
+    ///   Main logger function to be implemented.
+    /// </summary>
     procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+
+    /// <summary>
+    ///   Alternative logger function intended to write a message without
+    ///   formatting (timestamp, level info, thread id, etc...).
+    ///
+    ///   If your logger doesn't have this feature, implement this function
+    ///   as a normal log call.
+    /// </summary>
     procedure WriteRawLine(const AMsg: string);
   end;
 
@@ -100,7 +112,13 @@ type
   TLoggerAdapterFactoryClass = class of TLoggerAdapterFactory;
 
   /// <summary>
-  ///   Utility class for a logger implementing the ILogger interface
+  ///   Utility class for a logger implementing the ILogger interface.
+  ///
+  ///   This class is useful only il the final logger lacks formatting
+  ///   and LogLevel management.
+  ///
+  ///   If you are using a full featured Logger it's probably better
+  ///   to implement the ILoggerAdapter directly.
   /// </summary>
   TLoggerAdapterHelper = class(TInterfacedObject, ILoggerAdapter)
   public const
@@ -119,6 +137,7 @@ type
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
 
+    // ILoggerAdapter functions
     procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
     procedure WriteRawLine(const AMessage: string);
 
@@ -194,6 +213,11 @@ uses
   System.TypInfo, System.Classes, System.DateUtils, System.Rtti;
 
 type
+  /// <summary>
+  ///   Default implementation for the ILogger interface.
+  ///   TMultiLogger allows you to log on different loggers
+  ///   depending on the registered adapter factories.
+  /// </summary>
   TMultiLogger = class(TInterfacedObject, ILogger)
   private
     FClassName: string;
