@@ -18,18 +18,18 @@ uses
   LoggerPro;
 
 type
-  /// <summary>
+  /// <summary>                            +
   ///   LoggerPro adapter for the Logify framework
   /// </summary>
-  TLogifyAdapterLoggerPro = class(TLoggerAdapterHelper, ILoggerAdapter)
+  TLogifyAdapterLoggerPro = class(TInterfacedObject, ILoggerAdapter)
   private
     FLogger: ILogWriter;
     FRawLogType: TLogType;
     FTag: string;
   protected
-    procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
-    procedure InternalRaw(const AMessage: string); override;
-    function InternalGetLogger(const AName: string = ''): TObject; override;
+    { ILoggerAdapter }
+    procedure WriteLog(const AClassName: string; const AMsg: string; AException: Exception; ALevel: Logify.TLogLevel);
+    procedure WriteRawLine(const AMessage: string);
   public
     constructor Create(ALogType: TLogType; ALogger: ILogWriter; const ATag: string; ARawLogType: TLogType);
   end;
@@ -105,14 +105,6 @@ type
 implementation
 
 const
-  LogTypeMap: array [TLogType] of TLogLevel = (
-    TLogLevel.Debug,
-    TLogLevel.Info,
-    TLogLevel.Warning,
-    TLogLevel.Error,
-    TLogLevel.Critical
-  );
-
   LogLevelMap: array [TLogLevel] of TLogType = (
     TLogType.Debug,
     TLogType.Debug,
@@ -182,29 +174,22 @@ end;
 
 constructor TLogifyAdapterLoggerPro.Create(ALogType: TLogType; ALogger: ILogWriter; const ATag: string; ARawLogType: TLogType);
 begin
-  inherited Create(LogTypeMap[ALogType]);
+  inherited Create();
   FLogger := ALogger;
   FTag := ATag;
   FRawLogType := ARawLogType;
 end;
 
-function TLogifyAdapterLoggerPro.InternalGetLogger(
-  const AName: string): TObject;
-begin
-  Result := Self;
-end;
-
-procedure TLogifyAdapterLoggerPro.InternalLog(const AMessage,
-  AClassName: string; AException: Exception; ALevel: TLogLevel);
+procedure TLogifyAdapterLoggerPro.WriteLog(const AClassName: string; const AMsg: string; AException: Exception; ALevel: Logify.TLogLevel);
 begin
   inherited;
   if ALevel = TLogLevel.Off then
     Exit;
 
-  FLogger.Log(LogLevelMap[ALevel], AMessage, FTag);
+  FLogger.Log(LogLevelMap[ALevel], AMsg, FTag);
 end;
 
-procedure TLogifyAdapterLoggerPro.InternalRaw(const AMessage: string);
+procedure TLogifyAdapterLoggerPro.WriteRawLine(const AMessage: string);
 begin
   inherited;
   FLogger.Log(FRawLogType, AMessage, FTag);
