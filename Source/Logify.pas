@@ -74,7 +74,6 @@ type
   ['{3593B5F9-EACB-403F-90DA-A63C32AD4E33}']
     procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
     procedure WriteRawLine(const AMsg: string);
-    function GetLoggerInstance(const AName: string = ''): TObject;
   end;
 
   /// <summary>
@@ -116,14 +115,12 @@ type
 
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); virtual; abstract;
     procedure InternalRaw(const AMessage: string); virtual; abstract;
-    function InternalGetLogger(const AName: string = ''): TObject; virtual; abstract;
   public
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
 
     procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
     procedure WriteRawLine(const AMessage: string);
-    function GetLoggerInstance(const AName: string = ''): TObject;
 
     property Level: TLogLevel read FLevel write FLevel;
   end;
@@ -231,9 +228,6 @@ type
     procedure LogWarning(AException: Exception; const AMsg: string); overload;
     procedure LogError(AException: Exception; const AMsg: string); overload;
     procedure LogCritical(AException: Exception; const AMsg: string); overload;
-
-
-    function GetLoggerInstance(const AName: string): TObject;
   end;
 
 var
@@ -467,20 +461,6 @@ begin
     LLoggerAdapter.WriteRawLine(AMsg);
 end;
 
-function TMultiLogger.GetLoggerInstance(const AName: string): TObject;
-var
-  LLogger: TObject;
-  LLoggerAdapter: ILoggerAdapter;
-begin
-  Result := nil;
-  for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
-  begin
-    LLogger := LLoggerAdapter.GetLoggerInstance(AName);
-    if Assigned(LLogger) then
-      Exit(LLogger);
-  end;
-end;
-
 procedure TMultiLogger.Log(AException: Exception; const AMsg: string; ALevel: TLogLevel);
 var
   LLoggerAdapter: ILoggerAdapter;
@@ -621,11 +601,6 @@ end;
 function TLoggerAdapterHelper.FormatSeparator: string;
 begin
   Result := StringOfChar(LOG_LINE_SEP, 60);
-end;
-
-function TLoggerAdapterHelper.GetLoggerInstance(const AName: string): TObject;
-begin
-  Result := InternalGetLogger(AName);
 end;
 
 procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);

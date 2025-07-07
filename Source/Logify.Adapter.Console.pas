@@ -33,7 +33,6 @@ type
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
-    function InternalGetLogger(const AName: string = ''): TObject; override;
   end;
 
   /// <summary>
@@ -63,11 +62,6 @@ begin
   FAllocated := true;
 end;
 {$ENDIF}
-
-function TLogifyAdapterConsole.InternalGetLogger(const AName: string): TObject;
-begin
-  Result := Self;
-end;
 
 procedure TLogifyAdapterConsole.InternalLog(const AMessage, AClassName: string;
     AException: Exception; ALevel: TLogLevel);

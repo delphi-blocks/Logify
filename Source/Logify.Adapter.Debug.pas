@@ -25,7 +25,6 @@ type
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
-    function InternalGetLogger(const AName: string = ''): TObject; override;
   public
     constructor Create(const ALevel: TLogLevel);
 
@@ -55,11 +54,6 @@ uses
 constructor TLogifyAdapterDebug.Create(const ALevel: TLogLevel);
 begin
   FLevel := ALevel;
-end;
-
-function TLogifyAdapterDebug.InternalGetLogger(const AName: string): TObject;
-begin
-  Result := Self;
 end;
 
 procedure TLogifyAdapterDebug.InternalLog(const AMessage, AClassName: string;

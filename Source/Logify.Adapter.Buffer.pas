@@ -28,8 +28,6 @@ type
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
-
-    function InternalGetLogger(const AName: string = ''): TObject; override;
   public
     constructor Create;
     destructor Destroy; override;
@@ -82,11 +80,6 @@ end;
 procedure TLogifyAdapterBuffer.Flush(ATarget: TStrings);
 begin
   ATarget.AddStrings(FBuffer);
-end;
-
-function TLogifyAdapterBuffer.InternalGetLogger(const AName: string): TObject;
-begin
-  Result := Self;
 end;
 
 procedure TLogifyAdapterBuffer.InternalLog(const AMessage, AClassName: string;

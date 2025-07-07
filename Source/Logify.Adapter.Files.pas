@@ -184,8 +184,6 @@ type
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string); override;
-
-    function InternalGetLogger(const AName: string = ''): TObject; override;
   public
     constructor Create(const AConfig: TFileLogConfig);
     destructor Destroy; override;
@@ -729,11 +727,6 @@ end;
 procedure TLogifyAdapterFiles.InitializeLogger;
 begin
   FLogger.StartLogging;
-end;
-
-function TLogifyAdapterFiles.InternalGetLogger(const AName: string): TObject;
-begin
-  Result := FLogger;
 end;
 
 procedure TLogifyAdapterFiles.InternalLog(const AMessage, AClassName: string;

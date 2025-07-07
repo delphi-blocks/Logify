@@ -102,14 +102,14 @@ begin
   ));
 end;
 
-procedure TfrmMain.btnLogFmtClick(Sender: TObject);
-begin
-  Logger.Log('Formatted Log Message %d', [Random(100)], GetLevel);
-end;
-
 procedure TfrmMain.btnLogClick(Sender: TObject);
 begin
   Logger.Log('Log Message', GetLevel);
+end;
+
+procedure TfrmMain.btnLogFmtClick(Sender: TObject);
+begin
+  Logger.Log('Formatted Log Message %d', [Random(100)], GetLevel);
 end;
 
 procedure TfrmMain.btnLogExceptionClick(Sender: TObject);
