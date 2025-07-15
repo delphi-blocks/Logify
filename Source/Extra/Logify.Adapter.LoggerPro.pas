@@ -29,7 +29,7 @@ type
   protected
     { ILoggerAdapter }
     procedure WriteLog(const AClassName: string; const AMsg: string; AException: Exception; ALevel: Logify.TLogLevel);
-    procedure WriteRawLine(const AMessage: string);
+    procedure WriteRawLine(const AMessage: string; ALevel: Logify.TLogLevel);
   public
     constructor Create(ALogType: TLogType; ALogger: ILogWriter; const ATag: string; ARawLogType: TLogType);
   end;
@@ -189,7 +189,7 @@ begin
   FLogger.Log(LogLevelMap[ALevel], AMsg, FTag);
 end;
 
-procedure TLogifyAdapterLoggerPro.WriteRawLine(const AMessage: string);
+procedure TLogifyAdapterLoggerPro.WriteRawLine(const AMessage: string; ALevel: Logify.TLogLevel);
 begin
   inherited;
   FLogger.Log(FRawLogType, AMessage, FTag);

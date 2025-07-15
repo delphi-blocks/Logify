@@ -50,6 +50,8 @@ object frmMain: TfrmMain
     Font.Style = []
     ParentFont = False
     TabOrder = 2
+    ExplicitWidth = 897
+    ExplicitHeight = 255
   end
   object btnBufferLogger: TButton
     Left = 448

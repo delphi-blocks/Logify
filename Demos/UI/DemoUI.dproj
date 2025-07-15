@@ -6,10 +6,10 @@
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
-        <ProjectName Condition="'$(ProjectName)'==''">LogifyTest</ProjectName>
+        <ProjectName Condition="'$(ProjectName)'==''">DemoUI</ProjectName>
         <TargetedPlatforms>3</TargetedPlatforms>
         <AppType>Application</AppType>
-        <MainSource>LogifyTest.dpr</MainSource>
+        <MainSource>DemoUI.dpr</MainSource>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -70,7 +70,10 @@
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
-        <SanitizedProjectName>LogifyTest</SanitizedProjectName>
+        <SanitizedProjectName>DemoUI</SanitizedProjectName>
+        <DCC_UnitSearchPath>..\..\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <VerInfo_Locale>2057</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_UsePackage>JvNet;vclwinx;DataSnapServer;fmx;vclie;DbxCommonDriver;bindengine;IndyIPCommon;VCLRESTComponents;DBXMSSQLDriver;FireDACCommonODBC;emsclient;appanalytics;IndyProtocols;vclx;Skia.Package.RTL;dbxcds;vcledge;FmxTeeUI;DBXFirebirdDriver;JvAppFrm;FireDACSqliteDriver;DbxClientDriver;JclVcl;soapmidas;TeeUI;Jcl;dbexpress;JvManagedThreads;inet;vcltouch;JvDB;FireDACDBXDriver;fmxdae;JvCustom;CustomIPTransport;FireDACMSSQLDriver;JvSystem;JvControls;JvCrypt;JvJans;JvMM;IndySystem;JvGlobus;JclContainers;JvPageComps;vclFireDAC;FireDACCommon;DataSnapServerMidas;FireDACODBCDriver;emsserverresource;bindcompdbx;rtl;FireDACMySQLDriver;DBXSqliteDriver;DBXSybaseASEDriver;JvRuntimeDesign;JvXPCtrls;vclimg;DataSnapFireDAC;inetdbxpress;FireDAC;JvDocking;JvDlgs;xmlrtl;dsnap;JvCmp;FireDACDb2Driver;DBXOracleDriver;DBXInformixDriver;fmxobj;bindcompvclsmp;DataSnapNativeClient;DatasnapConnectorsFreePascal;emshosting;FireDACCommonDriver;IndyIPClient;bindcompvclwinx;emsedge;bindcompfmx;JvBands;inetdb;FireDACASADriver;Tee;vclactnband;fmxFireDAC;FireDACInfxDriver;DBXMySQLDriver;VclSmp;DataSnapCommon;JvPascalInterpreter;fmxase;JvPluginSystem;DBXOdbcDriver;JvTimeFramework;dbrtl;FireDACOracleDriver;Skia.Package.FMX;TeeDB;FireDACMSAccDriver;DataSnapIndy10ServerTransport;JclDeveloperTools;DataSnapConnectors;vcldsnap;DBXInterBaseDriver;FireDACMongoDBDriver;JvWizards;FireDACTDataDriver;Skia.Package.VCL;vcldb;JvCore;bindcomp;IndyCore;RESTBackendComponents;FireDACADSDriver;RESTComponents;IndyIPServer;vcl;dsnapxml;adortl;dsnapcon;DataSnapClient;DataSnapProviderClient;JvDotNetCtrls;JvHMI;DBXDb2Driver;emsclientfiredac;FireDACPgDriver;FireDACDSDriver;JvPrintPreview;tethering;JvStdCtrls;bindcompvcl;CloudService;DBXSybaseASADriver;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -103,6 +106,8 @@
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
@@ -123,15 +128,15 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Test.Form.Main.pas">
+        <DCCReference Include="..\..\Source\Logify.pas"/>
+        <DCCReference Include="..\..\Source\Logify.Adapter.Buffer.pas"/>
+        <DCCReference Include="..\..\Source\Logify.Adapter.Console.pas"/>
+        <DCCReference Include="..\..\Source\Logify.Adapter.Debug.pas"/>
+        <DCCReference Include="..\..\Source\Logify.Adapter.Files.pas"/>
+        <DCCReference Include="Demo.Form.Main.pas">
             <Form>frmMain</Form>
         </DCCReference>
-        <DCCReference Include="..\Source\Logify.Adapter.Buffer.pas"/>
-        <DCCReference Include="..\Source\Logify.Adapter.Console.pas"/>
-        <DCCReference Include="..\Source\Logify.Adapter.Debug.pas"/>
-        <DCCReference Include="..\Source\Logify.Adapter.Files.pas"/>
-        <DCCReference Include="..\Source\Logify.pas"/>
-        <DCCReference Include="Test.Form.Second.pas">
+        <DCCReference Include="Demo.Form.Second.pas">
             <Form>frmSecond</Form>
             <FormType>dfm</FormType>
         </DCCReference>
@@ -153,17 +158,21 @@
         <BorlandProject>
             <Delphi.Personality>
                 <Source>
-                    <Source Name="MainSource">LogifyTest.dpr</Source>
+                    <Source Name="MainSource">DemoUI.dpr</Source>
                 </Source>
+                <Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k290.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp290.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                </Excluded_Packages>
             </Delphi.Personality>
             <Deployment Version="5">
-                <DeployFile LocalName="Win32\Debug\LogifyTest.exe" Configuration="Debug" Class="ProjectOutput"/>
-                <DeployFile LocalName="Win32\Debug\LogifyTest.exe" Configuration="Debug" Class="ProjectOutput">
+                <DeployFile LocalName="Win32\Debug\DemoUI.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win32">
-                        <RemoteName>LogifyTest.exe</RemoteName>
+                        <RemoteName>DemoUI.exe</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
+                <DeployFile LocalName="Win32\Debug\LogifyTest.exe" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">
                         <Operation>1</Operation>

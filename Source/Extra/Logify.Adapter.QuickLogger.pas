@@ -17,7 +17,7 @@ type
     FRawLogType: TEventType;
   public
     { ILoggerAdapter }
-    procedure WriteRawLine(const AMsg: string);
+    procedure WriteRawLine(const AMsg: string; ALevel: Logify.TLogLevel);
     procedure WriteLog(const AClassName: string; const AMsg: string; AException: Exception; ALevel: Logify.TLogLevel);
 
     constructor Create(ALogger: TLogger; ALogLevel: Logify.TLogLevel);
@@ -106,7 +106,7 @@ begin
   FLogger.Add(AMsg, [AClassName], LogLevelMap[ALevel]);
 end;
 
-procedure TLogifyAdapterQuickLog.WriteRawLine(const AMsg: string);
+procedure TLogifyAdapterQuickLog.WriteRawLine(const AMsg: string; ALevel: Logify.TLogLevel);
 begin
   FLogger.Add(AMsg, FRawLogType);
 end;

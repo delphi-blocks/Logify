@@ -1,4 +1,4 @@
-program LogifyConsole;
+program DemoConsole;
 
 {$APPTYPE CONSOLE}
 

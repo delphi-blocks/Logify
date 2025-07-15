@@ -32,7 +32,7 @@ type
   {$ENDIF}
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
-    procedure InternalRaw(const AMessage: string); override;
+    procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); override;
   end;
 
   /// <summary>
@@ -73,7 +73,7 @@ begin
   Writeln(FormatMsg(AMessage, AClassName, AException, ALevel));
 end;
 
-procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string);
+procedure TLogifyAdapterConsole.InternalRaw(const AMessage: string; ALevel: TLogLevel);
 begin
   {$IFDEF MSWindows}
   AllocConsole;

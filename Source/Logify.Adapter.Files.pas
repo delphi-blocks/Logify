@@ -183,7 +183,7 @@ type
     FLogger: TLogFile;
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
-    procedure InternalRaw(const AMessage: string); override;
+    procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); override;
   public
     constructor Create(const AConfig: TFileLogConfig);
     destructor Destroy; override;
@@ -735,7 +735,7 @@ begin
   FLogger.AddStr(FormatMsg(AMessage, AClassName, AException, ALevel));
 end;
 
-procedure TLogifyAdapterFiles.InternalRaw(const AMessage: string);
+procedure TLogifyAdapterFiles.InternalRaw(const AMessage: string; ALevel: TLogLevel);
 begin
   FLogger.AddStr(AMessage);
 end;

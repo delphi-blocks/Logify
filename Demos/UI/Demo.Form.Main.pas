@@ -8,7 +8,7 @@
 {  Licensed under the MIT license                                              }
 {                                                                              }
 {******************************************************************************}
-unit Test.Form.Main;
+unit Demo.Form.Main;
 
 interface
 
@@ -64,7 +64,7 @@ var
 implementation
 
 uses
-  Test.Form.Second;
+  Demo.Form.Second;
 
 {$R *.dfm}
 

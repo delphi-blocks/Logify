@@ -43,7 +43,7 @@ type
     procedure Log(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
 
-    procedure LogRawLine(const AMsg: string);
+    procedure LogRawLine(const AMsg: string; ALevel: TLogLevel);
 
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
@@ -85,7 +85,7 @@ type
     ///   If your logger doesn't have this feature, implement this function
     ///   as a normal log call.
     /// </summary>
-    procedure WriteRawLine(const AMsg: string);
+    procedure WriteRawLine(const AMsg: string; ALevel: TLogLevel);
   end;
 
   /// <summary>
@@ -132,14 +132,14 @@ type
     function FormatSeparator(): string; virtual;
 
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); virtual; abstract;
-    procedure InternalRaw(const AMessage: string); virtual; abstract;
+    procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); virtual; abstract;
   public
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
 
     // ILoggerAdapter functions
     procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
-    procedure WriteRawLine(const AMessage: string);
+    procedure WriteRawLine(const AMessage: string; ALevel: TLogLevel);
 
     property Level: TLogLevel read FLevel write FLevel;
   end;
@@ -230,7 +230,7 @@ type
     procedure Log(const AMsg: string; const AArgs: array of const; ALevel: TLogLevel); overload;
     procedure Log(AException: Exception; const AMsg: string; ALevel: TLogLevel); overload;
 
-    procedure LogRawLine(const AMsg: string);
+    procedure LogRawLine(const AMsg: string; ALevel: TLogLevel);
 
     procedure LogTrace(const AMsg: string); overload;
     procedure LogDebug(const AMsg: string); overload;
@@ -477,12 +477,12 @@ begin
   Log(nil, AMsg, TLogLevel.Warning);
 end;
 
-procedure TMultiLogger.LogRawLine(const AMsg: string);
+procedure TMultiLogger.LogRawLine(const AMsg: string; ALevel: TLogLevel);
 var
   LLoggerAdapter: ILoggerAdapter;
 begin
   for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
-    LLoggerAdapter.WriteRawLine(AMsg);
+    LLoggerAdapter.WriteRawLine(AMsg, ALevel);
 end;
 
 procedure TMultiLogger.Log(AException: Exception; const AMsg: string; ALevel: TLogLevel);
@@ -636,9 +636,13 @@ begin
   InternalLog(AMessage, AClassName, AException, ALevel);
 end;
 
-procedure TLoggerAdapterHelper.WriteRawLine(const AMessage: string);
+procedure TLoggerAdapterHelper.WriteRawLine(const AMessage: string; ALevel: TLogLevel);
 begin
-  InternalRaw(AMessage);
+  if ALevel = TLogLevel.Off then
+    Exit;
+  if ALevel < FLevel then
+    Exit;
+  InternalRaw(AMessage, ALevel);
 end;
 
 { TLoggerAdapterFactory }

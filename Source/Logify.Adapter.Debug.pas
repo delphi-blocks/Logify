@@ -24,7 +24,7 @@ type
     FLevel: TLogLevel;
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
-    procedure InternalRaw(const AMessage: string); override;
+    procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); override;
   public
     constructor Create(const ALevel: TLogLevel);
 
@@ -62,7 +62,7 @@ begin
   OutputDebugString(PChar(FormatMsg(AMessage, AClassName, AException, ALevel)));
 end;
 
-procedure TLogifyAdapterDebug.InternalRaw(const AMessage: string);
+procedure TLogifyAdapterDebug.InternalRaw(const AMessage: string; ALevel: TLogLevel);
 begin
   OutputDebugString(PChar(AMessage));
 end;

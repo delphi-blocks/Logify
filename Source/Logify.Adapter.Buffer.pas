@@ -15,6 +15,7 @@ interface
 uses
   System.Classes,
   System.SysUtils,
+  System.Generics.Collections,
   Logify;
 
 type
@@ -22,12 +23,18 @@ type
   ///   Adapter class for the Buffer Logger
   /// </summary>
   TLogifyAdapterBuffer = class(TLoggerAdapterHelper, ILoggerAdapter)
+  private type
+    TMsgBuffer = record
+      Msg: string;
+      Level: TLogLevel;
+      class function New(const AMsg: string; ALevel: TLogLevel): TMsgBuffer; static;
+    end;
   private
     FTarget: TStrings;
-    FBuffer: TStringList;
+    FBuffer: TList<TMsgBuffer>;
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
-    procedure InternalRaw(const AMessage: string); override;
+    procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); override;
   public
     constructor Create;
     destructor Destroy; override;
@@ -62,7 +69,7 @@ implementation
 constructor TLogifyAdapterBuffer.Create;
 begin
   inherited Create;
-  FBuffer := TStringList.Create;
+  FBuffer := TList<TMsgBuffer>.Create;
 end;
 
 destructor TLogifyAdapterBuffer.Destroy;
@@ -72,14 +79,19 @@ begin
 end;
 
 procedure TLogifyAdapterBuffer.Flush(ATarget: ILogger);
+var
+  LItem: TMsgBuffer;
 begin
-  for var Msg in FBuffer do
-    ATarget.LogRawLine(Msg);
+  for LItem in FBuffer do
+    ATarget.LogRawLine(LItem.Msg, LItem.Level);
 end;
 
 procedure TLogifyAdapterBuffer.Flush(ATarget: TStrings);
+var
+  LItem: TMsgBuffer;
 begin
-  ATarget.AddStrings(FBuffer);
+  for LItem in FBuffer do
+    ATarget.Add(LItem.Msg);
 end;
 
 procedure TLogifyAdapterBuffer.InternalLog(const AMessage, AClassName: string;
@@ -88,15 +100,15 @@ begin
   if Assigned(FTarget) then
     FTarget.Add(FormatMsg(AMessage, AClassName, AException, ALevel))
   else
-    FBuffer.Add(FormatMsg(AMessage, AClassName, AException, ALevel));
+    FBuffer.Add(TMsgBuffer.New(FormatMsg(AMessage, AClassName, AException, ALevel), ALevel));
 end;
 
-procedure TLogifyAdapterBuffer.InternalRaw(const AMessage: string);
+procedure TLogifyAdapterBuffer.InternalRaw(const AMessage: string; ALevel: TLogLevel);
 begin
   if Assigned(FTarget) then
     FTarget.Add(AMessage)
   else
-    FBuffer.Add(AMessage);
+    FBuffer.Add(TMsgBuffer.New(AMessage, ALevel));
 end;
 
 procedure TLogifyAdapterBuffer.SetTarget(ATarget: TStrings);
@@ -128,6 +140,15 @@ begin
   LLogger.SetTarget(FTarget);
 
   Result := LLogger;
+end;
+
+{ TLogifyAdapterBuffer.TMsgBuffer }
+
+class function TLogifyAdapterBuffer.TMsgBuffer.New(const AMsg: string;
+  ALevel: TLogLevel): TMsgBuffer;
+begin
+  Result.Msg := AMsg;
+  Result.Level := ALevel;
 end;
 
 end.
