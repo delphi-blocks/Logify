@@ -258,6 +258,16 @@ const
   /// </summary>
   function Logger: ILogger;
 
+  /// <summary>
+  ///   Full text of an exception: class, message, stack trace and the whole
+  ///   InnerException chain.
+  ///
+  ///   Exposed for the adapters that implement ILoggerAdapter directly and so
+  ///   do not inherit TLoggerAdapterHelper.FormatMsg. A nil exception yields
+  ///   an empty string.
+  /// </summary>
+  function GetFullExceptionInfo(E: Exception): string;
+
 implementation
 
 uses

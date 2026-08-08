@@ -50,6 +50,23 @@ type
   end;
 
   /// <summary>
+  ///   GetFullExceptionInfo, public so that adapters implementing
+  ///   ILoggerAdapter directly can render exceptions the same way
+  /// </summary>
+  [TestFixture]
+  TExceptionInfoTests = class
+  public
+    [Test]
+    procedure ANilExceptionYieldsAnEmptyString;
+    [Test]
+    procedure TheClassAndMessageAreReported;
+    [Test]
+    procedure TheInnerExceptionChainIsWalked;
+    [Test]
+    procedure ThereIsNoTrailingLineBreak;
+  end;
+
+  /// <summary>
   ///   Loggers bound to a category other than "default"
   /// </summary>
   [TestFixture]
@@ -223,6 +240,62 @@ begin
   Assert.IsNotNull(TLoggerManager.GetLogger(TStringList));
   Assert.IsNotNull(TLoggerManager.GetLogger('TStringList'));
   Assert.IsNotNull(TLoggerManager.GetLogger<TStringList>());
+end;
+
+{ TExceptionInfoTests }
+
+procedure TExceptionInfoTests.ANilExceptionYieldsAnEmptyString;
+begin
+  Assert.AreEqual('', GetFullExceptionInfo(nil));
+end;
+
+procedure TExceptionInfoTests.TheClassAndMessageAreReported;
+var
+  LException: Exception;
+begin
+  LException := EListError.Create('the failure');
+  try
+    Assert.Contains(GetFullExceptionInfo(LException), 'EListError');
+    Assert.Contains(GetFullExceptionInfo(LException), 'the failure');
+  finally
+    LException.Free;
+  end;
+end;
+
+procedure TExceptionInfoTests.TheInnerExceptionChainIsWalked;
+var
+  LInfo: string;
+begin
+  try
+    try
+      raise Exception.Create('the root cause');
+    except
+      Exception.RaiseOuterException(EListError.Create('the outer failure'));
+    end;
+  except
+    on E: Exception do
+      LInfo := GetFullExceptionInfo(E);
+  end;
+
+  Assert.Contains(LInfo, 'the outer failure');
+  Assert.Contains(LInfo, '--- Caused by');
+  Assert.Contains(LInfo, 'the root cause');
+end;
+
+procedure TExceptionInfoTests.ThereIsNoTrailingLineBreak;
+var
+  LException: Exception;
+  LInfo: string;
+begin
+  LException := Exception.Create('the failure');
+  try
+    LInfo := GetFullExceptionInfo(LException);
+  finally
+    LException.Free;
+  end;
+
+  Assert.IsFalse(LInfo.EndsWith(#10), 'A trailing break would produce an empty syslog record');
+  Assert.IsFalse(LInfo.EndsWith(#13));
 end;
 
 { TCategoryLoggerTests }
@@ -509,6 +582,7 @@ end;
 initialization
   TDUnitX.RegisterTestFixture(TLogLevelTests);
   TDUnitX.RegisterTestFixture(TLoggerTests);
+  TDUnitX.RegisterTestFixture(TExceptionInfoTests);
   TDUnitX.RegisterTestFixture(TCategoryLoggerTests);
   TDUnitX.RegisterTestFixture(TRegistryTests);
 

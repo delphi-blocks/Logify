@@ -77,6 +77,9 @@
         <DCCReference Include="..\source\Logify.Adapter.Console.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Debug.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Files.pas"/>
+        <DCCReference Include="..\source\Logify.Syslog.pas"/>
+        <DCCReference Include="..\source\Logify.Adapter.Syslog.pas"/>
+        <DCCReference Include="..\source\Posix.Syslog.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
