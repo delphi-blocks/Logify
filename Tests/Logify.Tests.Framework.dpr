@@ -27,7 +27,8 @@ uses
   Logify.Tests.Core in 'Source\Logify.Tests.Core.pas',
   Logify.Tests.Adapters in 'Source\Logify.Tests.Adapters.pas',
   Logify.Tests.Concurrency in 'Source\Logify.Tests.Concurrency.pas',
-  Logify.Tests.Syslog in 'Source\Logify.Tests.Syslog.pas';
+  Logify.Tests.Syslog in 'Source\Logify.Tests.Syslog.pas',
+  Logify.Tests.Files in 'Source\Logify.Tests.Files.pas';
 
 var
   LRunner : ITestRunner;

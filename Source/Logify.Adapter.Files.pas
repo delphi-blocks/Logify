@@ -32,6 +32,9 @@ type
   TFileLogConfig = record
   private const
     DATETIME_FILENAME = 'yyyymmdd_hhmmss';
+    DEFAULT_BUFFERED = True;
+    DEFAULT_ROTATE_ITEMS = 10;
+    DEFAULT_ROTATE_SIZE = 10485760;
   private
     FLogType: TLogType;
     FAppend: Boolean;
@@ -115,23 +118,43 @@ type
     /// </summary>
     TMessageWriter = class(TThread)
     private
-      //FWatch: TStopWatch;
       FConfig: TFileLogConfig;
       FSleepInterval: Integer;
       FWrittenBytes: Int64;
       FQueue: TMessageQueue;
-      FExecuting: Boolean;
+
+      /// <summary>
+      ///   Signalled once the thread knows whether it could open its file,
+      ///   whichever way it went. StartLogging waits on this instead of
+      ///   spinning on a flag that a failed thread would never set.
+      /// </summary>
+      FReady: TEvent;
+      FFailed: Boolean;
+      FLastError: string;
+
       function RecoverLastLog: TFileStream;
       function CreateLogFile: TFileStream;
       function CreateNextLog(AStream: TFileStream): TFileStream;
 
-      procedure ConsumeQueue(AStream: TStream);
-      procedure ConsumeQueueBuffered(AStream: TStream);
+      procedure WriteRecord(var AStream: TFileStream; const AMessage: UTF8String);
+      procedure ConsumeAvailable(var AStream: TFileStream);
+      procedure ConsumeQueue(var AStream: TFileStream);
+      procedure ConsumeQueueBuffered(var AStream: TFileStream);
     protected
       procedure Execute; override;
       procedure Stop;
     public
       constructor Create(const AConfig: TFileLogConfig; AQueue: TMessageQueue);
+      destructor Destroy; override;
+
+      /// <summary>
+      ///   Waits for the thread to report the outcome of its startup.
+      ///   False means it did not report in time.
+      /// </summary>
+      function WaitForStartup(ATimeout: Cardinal): Boolean;
+
+      property Failed: Boolean read FFailed;
+      property LastError: string read FLastError;
     end;
 
     /// <summary>
@@ -152,9 +175,15 @@ type
       procedure SignalTermination();
     end;
 
+  private const
+    /// <summary>How long StartLogging waits for the writer to come up</summary>
+    STARTUP_TIMEOUT = 5000;
+    /// <summary>How long EndLogging waits for the queue to reach the file</summary>
+    DRAIN_TIMEOUT = 5000;
   private
     FConfig: TFileLogConfig;
     FStarted: Boolean;
+    FLastError: string;
     FQueue: TMessageQueue;
     FWriter: TMessageWriter;
     FRotateTimer: TRotateTimer;
@@ -169,6 +198,14 @@ type
     procedure AddStr(const AString: string);
 
     property MessagesToWrite: Integer read GetMessagesToWrite;
+
+    /// <summary>
+    ///   False when the writer thread could not open its file. The logger
+    ///   then drops messages instead of queueing them for a thread that will
+    ///   never consume them.
+    /// </summary>
+    property Started: Boolean read FStarted;
+    property LastError: string read FLastError;
   end;
 
   // ***********
@@ -192,6 +229,14 @@ type
     procedure FinalizeLogger; virtual;
 
     function GetMessagesToWrite: Integer;
+
+    /// <summary>
+    ///   False when the writer thread could not open its file. The adapter
+    ///   then discards what it is given rather than failing the caller, so
+    ///   this is the only way to find out.
+    /// </summary>
+    function IsStarted: Boolean;
+    function LastError: string;
   end;
 
   /// <summary>
@@ -228,9 +273,15 @@ end;
 
 destructor TLogFile.Destroy;
 begin
+  // Anything still queued belongs in the file, whether or not EndLogging was
+  // called for us
+  EndLogging;
+
   if Assigned(FRotateTimer) then
   begin
-    FRotateTimer.Terminate();
+    // SignalTermination, not Terminate: the timer sleeps on its event, and a
+    // bare Terminate would leave shutdown waiting out the whole interval.
+    FRotateTimer.SignalTermination();
     if not FRotateTimer.Suspended then
       FRotateTimer.WaitFor;
 
@@ -251,8 +302,20 @@ begin
 end;
 
 procedure TLogFile.EndLogging;
+var
+  LWatch: TStopwatch;
 begin
+  if not FStarted then
+    Exit;
+
+  // Ask the writer to poll faster, then give it a bounded window to put the
+  // queue on disk. Without this the messages logged just before shutdown, the
+  // interesting ones, are the ones that never arrive.
   FWriter.Stop;
+
+  LWatch := TStopwatch.StartNew;
+  while (FQueue.Count > 0) and (LWatch.ElapsedMilliseconds < DRAIN_TIMEOUT) do
+    Sleep(5);
 end;
 
 procedure TLogFile.StartLogging;
@@ -261,8 +324,20 @@ begin
     Exit;
 
   FWriter.Start;
-  while not FWriter.FExecuting do
-    Sleep(5);
+
+  // Bounded, and driven by an event: a writer that cannot open its file used
+  // to leave this spinning forever, which froze the first call to log.
+  if not FWriter.WaitForStartup(STARTUP_TIMEOUT) then
+  begin
+    FLastError := 'The log writer did not start within ' + STARTUP_TIMEOUT.ToString + ' ms';
+    Exit;
+  end;
+
+  if FWriter.Failed then
+  begin
+    FLastError := FWriter.LastError;
+    Exit;
+  end;
 
   if FConfig.LogType = TLogType.Rotate then
     FRotateTimer.Start;
@@ -272,6 +347,11 @@ end;
 
 procedure TLogFile.AddStr(const AString: string);
 begin
+  // Nobody is consuming: queueing would only grow the queue for the lifetime
+  // of the process
+  if not FStarted then
+    Exit;
+
   if AString.EndsWith(sLineBreak) then
     FQueue.Push(UTF8String(AString))
   else
@@ -285,67 +365,60 @@ end;
 
 { TMessageWriter }
 
-procedure TLogFile.TMessageWriter.ConsumeQueue(AStream: TStream);
+procedure TLogFile.TMessageWriter.WriteRecord(var AStream: TFileStream; const AMessage: UTF8String);
 var
-  LStr: UTF8String;
-  LStrLen: UInt32;
+  LLength: Integer;
 begin
-  LStr := FQueue.Pop();
-  LStrLen := Length(LStr);
-  AStream.WriteBuffer(PAnsiChar(LStr)^, LStrLen);
-  FWrittenBytes := FWrittenBytes + LStrLen;
+  LLength := Length(AMessage);
+  if LLength = 0 then
+    Exit;
 
-  {
-  if ContainsStr(LStr, 'Line 0') then
-    FWatch.Start;
-
-  if ContainsStr(LStr, 'Line 9999') then
+  // Checked per record, not once per batch: a single buffered write can carry
+  // far more than RotateSize, and the file would grow without any limit.
+  if FConfig.NeedAnotherLog(FWrittenBytes) then
   begin
-    FWatch.Stop;
-    var tm: UTF8String := Format('Total time for (%d) bytes: %d' + sLineBreak, [Length(LStr), FWatch.ElapsedMilliseconds]);
-    AStream.WriteBuffer(PAnsiChar(tm)^, Length(tm));
-    FWatch.Reset;
+    AStream := CreateNextLog(AStream);
+    FWrittenBytes := 0;
   end;
-  }
+
+  AStream.WriteBuffer(PAnsiChar(AMessage)^, LLength);
+  FWrittenBytes := FWrittenBytes + LLength;
 end;
 
-procedure TLogFile.TMessageWriter.ConsumeQueueBuffered(AStream: TStream);
-var
-  LArray: TArray<UTF8String>;
-  LStr: UTF8String;
-  LStrLen: Integer;
-  //LChunkLen: Integer;
+procedure TLogFile.TMessageWriter.ConsumeAvailable(var AStream: TFileStream);
 begin
+  if FQueue.Count = 0 then
+    Exit;
 
-  //FWatch.Start;
-  //LChunkLen := 0;
-  LArray := FQueue.PopAll;
-  for LStr in LArray do
+  if FConfig.Buffered then
+    ConsumeQueueBuffered(AStream)
+  else
+    ConsumeQueue(AStream);
+end;
+
+procedure TLogFile.TMessageWriter.ConsumeQueue(var AStream: TFileStream);
+var
+  LPending: NativeInt;
+begin
+  // Bounded by the count observed on entry, so a fast producer cannot keep
+  // this loop running forever, but everything already queued is written now
+  // instead of one record per sleep interval.
+  LPending := FQueue.Count;
+  while (LPending > 0) and (FQueue.Count > 0) do
   begin
-    LStrLen := Length(LStr);
-    AStream.WriteBuffer(PAnsiChar(LStr)^, LStrLen);
-    FWrittenBytes := FWrittenBytes + LStrLen;
-    //LChunkLen := LChunkLen + LStrLen;
+    WriteRecord(AStream, FQueue.Pop);
+    Dec(LPending);
   end;
+end;
 
-  {
-  FWatch.Stop;
-  var tm: UTF8String := Format('Total time for %d bytes: %dms' + sLineBreak, [LChunkLen, FWatch.ElapsedMilliseconds]);
-  AStream.WriteBuffer(PAnsiChar(tm)^, Length(tm));
-  FWatch.Reset;
-  FQueue.Lock;
-  try
-    for LStr in FQueue.FMessages do
-    begin
-      LStrLen := Length(LStr);
-      AStream.WriteBuffer(PAnsiChar(LStr)^, LStrLen);
-      FWrittenBytes := FWrittenBytes + LStrLen;
-    end;
-    FQueue.FMessages.Clear;
-  finally
-    FQueue.UnLock;
-  end;
-  }
+procedure TLogFile.TMessageWriter.ConsumeQueueBuffered(var AStream: TFileStream);
+var
+  LStr: UTF8String;
+begin
+  // One trip through the lock for the whole batch, then the records are
+  // written outside it
+  for LStr in FQueue.PopAll do
+    WriteRecord(AStream, LStr);
 end;
 
 constructor TLogFile.TMessageWriter.Create(const AConfig: TFileLogConfig; AQueue: TMessageQueue);
@@ -354,8 +427,22 @@ begin
 
   FConfig := AConfig;
   FQueue := AQueue;
+  FReady := TEvent.Create(nil, True, False, '');
 
   FSleepInterval := 50;
+end;
+
+destructor TLogFile.TMessageWriter.Destroy;
+begin
+  // inherited first: it terminates and waits for the thread, which is still
+  // allowed to touch FReady until then
+  inherited;
+  FReady.Free;
+end;
+
+function TLogFile.TMessageWriter.WaitForStartup(ATimeout: Cardinal): Boolean;
+begin
+  Result := FReady.WaitFor(ATimeout) = wrSignaled;
 end;
 
 procedure TLogFile.TMessageWriter.Execute;
@@ -367,35 +454,47 @@ begin
       LStream := RecoverLastLog
     else
       LStream := CreateLogFile;
-
-    try
-      // Initialize FWrittenBytes to the file size
-      FWrittenBytes := LStream.Seek(0, soEnd);
-      FExecuting := True;
-
-      while not Terminated do
-      begin
-        if FQueue.Count > 0 then
-        begin
-          if FConfig.NeedAnotherLog(FWrittenBytes) then
-          begin
-            LStream := CreateNextLog(LStream);
-            FWrittenBytes := 0;
-          end;
-
-          if FConfig.Buffered then
-            ConsumeQueueBuffered(LStream)
-          else
-            ConsumeQueue(LStream);
-        end;
-
-        Sleep(FSleepInterval);
-      end;
-    finally
-      LStream.Free;
-    end;
   except
-    FExecuting := False;
+    on E: Exception do
+    begin
+      // The caller is waiting: it has to be told that the file never opened,
+      // otherwise it waits for a thread that is about to disappear.
+      FLastError := E.ClassName + ': ' + E.Message;
+      FFailed := True;
+      FReady.SetEvent;
+      Exit;
+    end;
+  end;
+
+  try
+    // Initialize FWrittenBytes to the file size
+    FWrittenBytes := LStream.Seek(0, soEnd);
+    FReady.SetEvent;
+
+    while not Terminated do
+    begin
+      try
+        ConsumeAvailable(LStream);
+      except
+        on E: Exception do
+          // A failing write (disk full, file removed underneath us) must not
+          // kill the thread: the next pass tries again.
+          FLastError := E.ClassName + ': ' + E.Message;
+      end;
+
+      Sleep(FSleepInterval);
+    end;
+
+    // Terminated. Whatever is still queued was accepted from the caller and
+    // has to reach the file before the stream goes away.
+    try
+      ConsumeAvailable(LStream);
+    except
+      on E: Exception do
+        FLastError := E.ClassName + ': ' + E.Message;
+    end;
+  finally
+    LStream.Free;
   end;
 end;
 
@@ -432,8 +531,10 @@ end;
 
 function TLogFile.TMessageWriter.CreateNextLog(AStream: TFileStream): TFileStream;
 begin
-  FreeAndNil(AStream);
+  // The new stream first: if creating it fails, the caller keeps writing to
+  // the old one instead of holding a pointer that has already been freed.
   Result := CreateLogFile();
+  AStream.Free;
 end;
 
 { TLogFile.TRotateTimer }
@@ -468,6 +569,7 @@ end;
 procedure TLogFile.TRotateTimer.DeleteOldFiles;
 var
   LIndex: Integer;
+  LKeep: Integer;
   LList: TArray<string>;
 begin
   LList := FConfig.GetLogList;
@@ -475,8 +577,20 @@ begin
   if Length(LList) = 0 then
     Exit;
 
-  for LIndex := 0 to (Length(LList) - FConfig.RotateItems - 1) do
+  // At least one has to survive: the newest is the file the writer thread
+  // currently holds open, and RotateItems <= 0 would put it in range.
+  LKeep := FConfig.RotateItems;
+  if LKeep < 1 then
+    LKeep := 1;
+
+  for LIndex := 0 to (Length(LList) - LKeep - 1) do
+  try
     TFile.Delete(LList[LIndex]);
+  except
+    // Still open, or not ours to delete. Leaving it for the next pass beats
+    // letting the exception escape Execute and kill the thread, which would
+    // silently stop all cleanup for the rest of the process.
+  end;
 end;
 
 { TLogFile.TMessageQueue }
@@ -568,9 +682,26 @@ end;
 { TFileLogConfig }
 
 function TFileLogConfig.BuildRotateName: string;
+var
+  LBase: string;
+  LIndex: Integer;
 begin
-  Result := TPath.Combine(FPath, FName) + '_' +
-    FormatDateTime(DATETIME_FILENAME, Now) + FExt;
+  LBase := TPath.Combine(FPath, FName) + '_' + FormatDateTime(DATETIME_FILENAME, Now);
+
+  // The stamp only resolves to the second, and the file is opened with
+  // fmCreate: rotating twice inside one second would truncate the file just
+  // rotated out. A suffix keeps every generation.
+  //
+  // Zero padded, because GetLogList sorts the names as text and the retention
+  // pass deletes from the front: unpadded, _10 would sort before _2 and the
+  // file currently being written could end up inside the delete range.
+  Result := LBase + FExt;
+  LIndex := 1;
+  while TFile.Exists(Result) do
+  begin
+    Result := LBase + Format('_%.3d', [LIndex]) + FExt;
+    Inc(LIndex);
+  end;
 end;
 
 function TFileLogConfig.GetFileName: string;
@@ -673,6 +804,7 @@ begin
   Self.LogType := TLogType.Rotate;
   Self.Level := ALevel;
   Self.Append := AAppend;
+  Self.Buffered := DEFAULT_BUFFERED;
   Self.SetLogName(AName);
   Self.Path := APath;
   Self.Ext := AExt;
@@ -688,9 +820,16 @@ begin
   Self.LogType := TLogType.Single;
   Self.Level := ALevel;
   Self.Append := AAppend;
+  Self.Buffered := DEFAULT_BUFFERED;
   Self.SetLogName(AName);
   Self.Path := APath;
   Self.Ext := AExt;
+
+  // Unused while the type is Single, but a record result only has its managed
+  // fields initialized: leaving these two holding stack garbage means a later
+  // switch to Rotate rotates on a nonsense size.
+  Self.RotateItems := DEFAULT_ROTATE_ITEMS;
+  Self.RotateSize := DEFAULT_ROTATE_SIZE;
 end;
 
 { TLogifyAdapterFiles }
@@ -722,6 +861,18 @@ begin
   Result := 0;
   if Assigned(FLogger) then
     Result := FLogger.MessagesToWrite;
+end;
+
+function TLogifyAdapterFiles.IsStarted: Boolean;
+begin
+  Result := Assigned(FLogger) and FLogger.Started;
+end;
+
+function TLogifyAdapterFiles.LastError: string;
+begin
+  Result := '';
+  if Assigned(FLogger) then
+    Result := FLogger.LastError;
 end;
 
 procedure TLogifyAdapterFiles.InitializeLogger;
