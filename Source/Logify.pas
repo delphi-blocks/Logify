@@ -273,6 +273,10 @@ implementation
 uses
   System.TypInfo, System.Classes, System.DateUtils, System.Rtti;
 
+resourcestring
+  SLoggerFactoryNotFound = 'LoggerFactory [%s] not found';
+  SCausedBy = '--- Caused by %s: %s';
+
 function GetFullExceptionInfo(E: Exception): string;
 const
   // Guards against a self-referential or circular InnerException chain
@@ -291,7 +295,7 @@ begin
         LFirst := False;
       end
       else
-        LSB.AppendLine('--- Caused by ' + LCurrent.ClassName + ': ' + LCurrent.ToString());
+        LSB.AppendLine(Format(SCausedBy, [LCurrent.ClassName, LCurrent.ToString()]));
 
       // .StackTrace requires a provider (JCL, MadExcept, etc.)
       // If no provider is installed, this remains empty.
@@ -444,7 +448,7 @@ function TLoggerAdapterRegistry.GetFactory(const AName: string): ILoggerAdapterF
 begin
   Result := FindFactory(AName);
   if not Assigned(Result) then
-    raise ELogifyException.CreateFmt('LoggerFactory [%s] not found', [AName]);
+    raise ELogifyException.CreateFmt(SLoggerFactoryNotFound, [AName]);
 end;
 
 function TLoggerAdapterRegistry.FindFactory(const AName: string): ILoggerAdapterFactory;

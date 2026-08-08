@@ -286,12 +286,13 @@ implementation
 uses
   System.IOUtils;
 
-const
+resourcestring
   /// <summary>
   ///   Written in place of the messages that did not fit. A gap in a log has
   ///   to be visible, otherwise the file quietly misleads whoever reads it.
   /// </summary>
-  DROPPED_TEMPLATE = '*** %d message(s) dropped: the log queue was full ***';
+  SMessagesDropped = '*** %d message(s) dropped: the log queue was full ***';
+  SWriterDidNotStart = 'The log writer did not start within %d ms';
 
 constructor TLogFile.Create(const AConfig: TFileLogConfig);
 begin
@@ -361,7 +362,7 @@ begin
   // to leave this spinning forever, which froze the first call to log.
   if not FWriter.WaitForStartup(STARTUP_TIMEOUT) then
   begin
-    FLastError := 'The log writer did not start within ' + STARTUP_TIMEOUT.ToString + ' ms';
+    FLastError := Format(SWriterDidNotStart, [STARTUP_TIMEOUT]);
     Exit;
   end;
 
@@ -425,7 +426,7 @@ begin
   // messages that were dropped are older than everything still queued.
   LDropped := FQueue.TakeDropped;
   if LDropped > 0 then
-    WriteRecord(AStream, UTF8String(Format(DROPPED_TEMPLATE, [LDropped]) + sLineBreak));
+    WriteRecord(AStream, UTF8String(Format(SMessagesDropped, [LDropped]) + sLineBreak));
 
   if FQueue.Count = 0 then
     Exit;
