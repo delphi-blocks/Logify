@@ -35,6 +35,7 @@ type
     DEFAULT_BUFFERED = True;
     DEFAULT_ROTATE_ITEMS = 10;
     DEFAULT_ROTATE_SIZE = 10485760;
+    DEFAULT_MAX_QUEUE_SIZE = 100000;
   private
     FLogType: TLogType;
     FAppend: Boolean;
@@ -46,8 +47,10 @@ type
     FLevel: TLogLevel;
     FRotateSize: Integer;
     FRotateItems: Integer;
+    FMaxQueueSize: Integer;
     procedure SetExt(const Value: string);
     procedure SetPath(const Value: string);
+    procedure SetMaxQueueSize(const Value: Integer);
     function BuildRotateName: string;
     function GetLogList: TArray<string>;
   public
@@ -84,6 +87,19 @@ type
     property Buffered: Boolean read FBuffered write FBuffered;
     property RotateSize: Integer read FRotateSize write FRotateSize;
     property RotateItems: Integer read FRotateItems write FRotateItems;
+
+    /// <summary>
+    ///   Most messages allowed to wait for the writer thread. When the disk
+    ///   stalls, or the application logs faster than the file can absorb, the
+    ///   queue would otherwise grow until the process runs out of memory.
+    ///
+    ///   Once it is full the oldest waiting messages are dropped, and how
+    ///   many were lost is written into the log as soon as it recovers, so
+    ///   the gap is never silent.
+    ///
+    ///   0 removes the limit, and with it the guarantee.
+    /// </summary>
+    property MaxQueueSize: Integer read FMaxQueueSize write SetMaxQueueSize;
   end;
   TFileLogConfProc = reference to procedure (var AConfig: TFileLogConfig);
 
@@ -99,8 +115,11 @@ type
     TMessageQueue = class
     private
       FMessages: TQueue<UTF8String>;
+      FCapacity: Integer;
+      FDropped: Integer;
     public
-      constructor Create;
+      /// <summary>ACapacity 0 means no limit</summary>
+      constructor Create(ACapacity: Integer);
       destructor Destroy; override;
 
       procedure Lock; inline;
@@ -111,6 +130,12 @@ type
       function Pop: UTF8String;
       function PopAll: TArray<UTF8String>;
       function Count: NativeInt;
+
+      /// <summary>
+      ///   How many messages have been dropped since the last call, and
+      ///   resets the count. The writer reports them into the log.
+      /// </summary>
+      function TakeDropped: Integer;
     end;
 
     /// <summary>
@@ -261,11 +286,18 @@ implementation
 uses
   System.IOUtils;
 
+const
+  /// <summary>
+  ///   Written in place of the messages that did not fit. A gap in a log has
+  ///   to be visible, otherwise the file quietly misleads whoever reads it.
+  /// </summary>
+  DROPPED_TEMPLATE = '*** %d message(s) dropped: the log queue was full ***';
+
 constructor TLogFile.Create(const AConfig: TFileLogConfig);
 begin
   FConfig := AConfig;
 
-  FQueue := TMessageQueue.Create;
+  FQueue := TMessageQueue.Create(AConfig.MaxQueueSize);
 
   FWriter  := TMessageWriter.Create(AConfig, FQueue);
   FRotateTimer := TRotateTimer.Create(AConfig);
@@ -386,7 +418,15 @@ begin
 end;
 
 procedure TLogFile.TMessageWriter.ConsumeAvailable(var AStream: TFileStream);
+var
+  LDropped: Integer;
 begin
+  // Reported before the batch, which is where the gap actually is: the
+  // messages that were dropped are older than everything still queued.
+  LDropped := FQueue.TakeDropped;
+  if LDropped > 0 then
+    WriteRecord(AStream, UTF8String(Format(DROPPED_TEMPLATE, [LDropped]) + sLineBreak));
+
   if FQueue.Count = 0 then
     Exit;
 
@@ -615,9 +655,10 @@ begin
   end;
 end;
 
-constructor TLogFile.TMessageQueue.Create;
+constructor TLogFile.TMessageQueue.Create(ACapacity: Integer);
 begin
   FMessages := TQueue<UTF8String>.Create;
+  FCapacity := ACapacity;
 end;
 
 destructor TLogFile.TMessageQueue.Destroy;
@@ -668,10 +709,28 @@ procedure TLogFile.TMessageQueue.Push(const AItem: UTF8String);
 begin
   Lock;
   try
+    // Full: make room by dropping the oldest waiting messages. When a log is
+    // overflowing it is the newest records that explain what is going on, and
+    // blocking the caller would make the logger a liability to the program
+    // it is supposed to be observing.
+    if FCapacity > 0 then
+      while FMessages.Count >= FCapacity do
+      begin
+        FMessages.Dequeue;
+        TInterlocked.Increment(FDropped);
+      end;
+
     FMessages.Enqueue(AItem);
   finally
     UnLock;
   end;
+end;
+
+function TLogFile.TMessageQueue.TakeDropped: Integer;
+begin
+  // Interlocked rather than the queue lock: the writer asks on every pass,
+  // and there is no reason to contend with the producers for that.
+  Result := TInterlocked.Exchange(FDropped, 0);
 end;
 
 procedure TLogFile.TMessageQueue.UnLock;
@@ -773,6 +832,14 @@ begin
     FExt := '.' + Value;
 end;
 
+procedure TFileLogConfig.SetMaxQueueSize(const Value: Integer);
+begin
+  if Value < 0 then
+    FMaxQueueSize := 0
+  else
+    FMaxQueueSize := Value;
+end;
+
 procedure TFileLogConfig.SetPath(const Value: string);
 begin
   if Value.IsEmpty then
@@ -805,6 +872,7 @@ begin
   Self.Level := ALevel;
   Self.Append := AAppend;
   Self.Buffered := DEFAULT_BUFFERED;
+  Self.MaxQueueSize := DEFAULT_MAX_QUEUE_SIZE;
   Self.SetLogName(AName);
   Self.Path := APath;
   Self.Ext := AExt;
@@ -821,6 +889,7 @@ begin
   Self.Level := ALevel;
   Self.Append := AAppend;
   Self.Buffered := DEFAULT_BUFFERED;
+  Self.MaxQueueSize := DEFAULT_MAX_QUEUE_SIZE;
   Self.SetLogName(AName);
   Self.Path := APath;
   Self.Ext := AExt;

@@ -36,7 +36,8 @@ type
     // Procedures, not functions: a discarded interface result stays alive in a
     // hidden temporary until the calling method returns, which would keep the
     // adapter, and its file, open for the whole test.
-    procedure NewAdapter(ABuffered: Boolean);
+    procedure NewAdapter(ABuffered: Boolean); overload;
+    procedure NewAdapter(ABuffered: Boolean; AMaxQueueSize: Integer); overload;
     procedure NewRotatingAdapter(ARotateSize, ARotateItems: Integer);
     procedure Release;
     function LogFiles: TArray<string>;
@@ -71,6 +72,14 @@ type
     [Test]
     procedure AFailedWriterReportsWhyAndDropsMessages;
 
+    // A queue that cannot grow without limit
+    [Test]
+    procedure AFullQueueDropsInsteadOfGrowing;
+    [Test]
+    procedure DroppedMessagesAreReportedInTheLog;
+    [Test]
+    procedure AZeroLimitKeepsEverything;
+
     // Configuration
     [Test]
     procedure ASingleConfigurationIsFullyInitialized;
@@ -104,17 +113,25 @@ begin
 end;
 
 procedure TFileAdapterTests.NewAdapter(ABuffered: Boolean);
+begin
+  NewAdapter(ABuffered, 0);
+end;
+
+procedure TFileAdapterTests.NewAdapter(ABuffered: Boolean; AMaxQueueSize: Integer);
 var
   LFactory: ILoggerAdapterFactory;
   LDir: string;
+  LLimit: Integer;
 begin
   LDir := FDir;
+  LLimit := AMaxQueueSize;
   LFactory := TLogifyAdapterFilesFactory.CreateAdapterFactory(UniqueName,
     procedure(var AConfig: TFileLogConfig)
     begin
       AConfig.Level := TLogLevel.Trace;
       AConfig.Append := False;
       AConfig.Buffered := ABuffered;
+      AConfig.MaxQueueSize := LLimit;
       AConfig.SetLogName(LOG_NAME);
       AConfig.Path := LDir;
       AConfig.Ext := 'log';
@@ -309,6 +326,58 @@ begin
     'messages must be dropped, not queued for a thread that will never run');
 end;
 
+procedure TFileAdapterTests.AFullQueueDropsInsteadOfGrowing;
+var
+  LFiles: TLogifyAdapterFiles;
+  LIndex: Integer;
+begin
+  // A queue of one, filled far faster than the writer's poll interval: almost
+  // every message has to be dropped rather than queued
+  NewAdapter(True, 1);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+
+  for LIndex := 1 to MESSAGES do
+    FAdapter.WriteLog('', 'line ' + LIndex.ToString, nil, TLogLevel.Info);
+
+  Assert.IsTrue(LFiles.GetMessagesToWrite <= 1,
+    Format('%d messages are waiting, the limit was 1', [LFiles.GetMessagesToWrite]));
+
+  Release;
+  Assert.IsTrue(TotalLines < MESSAGES, 'nothing was dropped, so nothing was bounded');
+end;
+
+procedure TFileAdapterTests.DroppedMessagesAreReportedInTheLog;
+var
+  LIndex: Integer;
+  LFile: string;
+  LText: string;
+begin
+  NewAdapter(True, 1);
+  for LIndex := 1 to MESSAGES do
+    FAdapter.WriteLog('', 'line ' + LIndex.ToString, nil, TLogLevel.Info);
+  Release;
+
+  LText := '';
+  for LFile in LogFiles do
+    LText := LText + TFile.ReadAllText(LFile);
+
+  // A gap that says nothing turns the log into a quiet lie
+  Assert.Contains(LText, 'dropped',
+    'the log has to say that messages were lost, and how many');
+end;
+
+procedure TFileAdapterTests.AZeroLimitKeepsEverything;
+var
+  LIndex: Integer;
+begin
+  NewAdapter(True, 0);
+  for LIndex := 1 to MESSAGES do
+    FAdapter.WriteLog('', 'line ' + LIndex.ToString, nil, TLogLevel.Info);
+  Release;
+
+  Assert.AreEqual(MESSAGES, TotalLines);
+end;
+
 procedure TFileAdapterTests.ASingleConfigurationIsFullyInitialized;
 var
   LConfig: TFileLogConfig;
@@ -320,6 +389,7 @@ begin
   Assert.AreEqual(Ord(TLogType.Single), Ord(LConfig.LogType));
   Assert.IsTrue(LConfig.RotateItems > 0, 'RotateItems was left uninitialized');
   Assert.IsTrue(LConfig.RotateSize > 0, 'RotateSize was left uninitialized');
+  Assert.IsTrue(LConfig.MaxQueueSize > 0, 'the queue is unbounded by default');
 end;
 
 procedure TFileAdapterTests.ARotateConfigurationIsFullyInitialized;
