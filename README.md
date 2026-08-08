@@ -213,6 +213,8 @@ TLoggerAdapterRegistry.Instance.RegisterFactory(
 
 Logs through libc `syslog(3)`, so records go wherever the machine already sends them: `journald` under systemd, `rsyslog` otherwise, and on to a central collector if one is configured. Linux only; on other platforms the units compile to nothing, so a cross platform project can include them unconditionally.
 
+> 📖 **[Docs/logify-syslog.md](Docs/logify-syslog.md)** is the full guide: every configuration property, the complete facility table, routing records to their own file with rsyslog, reading them back with `journalctl`, troubleshooting, and what the adapter does not do. What follows here is the short version.
+
 ```delphi
 uses
   Logify, Logify.Syslog, Logify.Adapter.Syslog;
@@ -280,6 +282,8 @@ grep myapp /var/log/syslog       # rsyslog
 ```
 
 `Demos/Syslog` is a ready to run example: build it for Linux64 and it logs every level, an exception with its inner exception, and a raw line.
+
+Everything else — routing a facility to its own file, retention with logrotate, why a record never turns up, the limits of the adapter — is in **[Docs/logify-syslog.md](Docs/logify-syslog.md)**.
 
 ## Writing your own adapter 🛠️
 
