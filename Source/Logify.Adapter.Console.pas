@@ -98,7 +98,7 @@ end;
 
 function TLogifyAdapterConsoleFactory.CreateLoggerAdapter: ILoggerAdapter;
 begin
-  Result := TLogifyAdapterConsole.Create();
+  Result := TLogifyAdapterConsole.Create(FLevel);
 end;
 
 end.

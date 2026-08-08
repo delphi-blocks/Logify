@@ -20,15 +20,9 @@ type
   ///   Adapter for the Logify framework
   /// </summary>
   TLogifyAdapterDebug = class(TLoggerAdapterHelper, ILoggerAdapter)
-  private
-    FLevel: TLogLevel;
   protected
     procedure InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel); override;
     procedure InternalRaw(const AMessage: string; ALevel: TLogLevel); override;
-  public
-    constructor Create(const ALevel: TLogLevel);
-
-    property Level: TLogLevel read FLevel write FLevel;
   end;
 
   /// <summary>
@@ -51,13 +45,7 @@ implementation
 uses
   Winapi.Windows;
 
-constructor TLogifyAdapterDebug.Create(const ALevel: TLogLevel);
-begin
-  FLevel := ALevel;
-end;
-
-procedure TLogifyAdapterDebug.InternalLog(const AMessage, AClassName: string;
-    AException: Exception; ALevel: TLogLevel);
+procedure TLogifyAdapterDebug.InternalLog(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel);
 begin
   OutputDebugString(PChar(FormatMsg(AMessage, AClassName, AException, ALevel)));
 end;
@@ -69,16 +57,14 @@ end;
 
 { TLogifyAdapterDebugFactory }
 
-class function TLogifyAdapterDebugFactory.CreateAdapterFactory(const AName:
-    string; ALevel: TLogLevel): TLogifyAdapterDebugFactory;
+class function TLogifyAdapterDebugFactory.CreateAdapterFactory(const AName: string; ALevel: TLogLevel): TLogifyAdapterDebugFactory;
 begin
   Result := TLogifyAdapterDebugFactory.Create();
   Result.Name := AName;
   Result.Level := ALevel;
 end;
 
-class function TLogifyAdapterDebugFactory.CreateAdapterFactory(
-  ALevel: TLogLevel): TLogifyAdapterDebugFactory;
+class function TLogifyAdapterDebugFactory.CreateAdapterFactory(ALevel: TLogLevel): TLogifyAdapterDebugFactory;
 begin
   Result := CreateAdapterFactory('', ALevel);
 end;

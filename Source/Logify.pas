@@ -162,10 +162,26 @@ type
   private class var
     FInstance: TLoggerAdapterRegistry;
   private
+    /// <summary>
+    ///   Guards every dictionary below. Recursive (a Windows critical
+    ///   section), so the internal helpers may be reached from an already
+    ///   locked public method on the same thread.
+    /// </summary>
+    FLock: TCriticalSection;
     FLoggerAdapters: TDictionary<string, LoggerAdapterInfo>;
     FRegistry: TDictionary<string, FactoryInfo>;
+
+    /// <summary>
+    ///   Adapters of a category, resolved once. Logging hits this on every
+    ///   single call, so it must not rescan the whole factory dictionary.
+    ///   Dropped whenever the registry changes.
+    /// </summary>
+    FCategoryCache: TDictionary<string, TArray<ILoggerAdapter>>;
     class function GetInstance: TLoggerAdapterRegistry; static;
+
+    // The callers of these two must already hold FLock
     function GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
+    procedure InternalUnregisterFactory(const AName: string);
   public
     class constructor Create;
     class destructor Destroy;
@@ -178,6 +194,26 @@ type
 
     procedure RegisterFactory(AFactory: ILoggerAdapterFactory); overload;
     procedure RegisterFactory(const ACategory: string; AFactory: ILoggerAdapterFactory); overload;
+
+    /// <summary>
+    ///   Removes a factory, together with the adapter cached for it, so the
+    ///   same unique name can be registered again. Unknown names are ignored,
+    ///   which makes it safe to call from cleanup code.
+    /// </summary>
+    procedure UnregisterFactory(const AName: string); overload;
+    procedure UnregisterFactory(AFactory: ILoggerAdapterFactory); overload;
+
+    /// <summary>
+    ///   Removes every factory (and cached adapter) of a category, leaving the
+    ///   other categories untouched.
+    /// </summary>
+    procedure UnregisterCategory(const ACategory: string);
+
+    /// <summary>
+    ///   Empties the registry: no factory, no cached adapter. Logging goes
+    ///   back to doing nothing at all.
+    /// </summary>
+    procedure Clear;
 
     function FindFactory(const AName: string): ILoggerAdapterFactory;
     function GetFactory(const AName: string): ILoggerAdapterFactory;
@@ -194,9 +230,24 @@ type
   /// </summary>
   TLoggerManager = class
   public
+    /// <summary>
+    ///   Loggers for the "default" category
+    /// </summary>
     class function GetLogger<T:class>(): ILogger; overload; static;
     class function GetLogger(AClass: TClass): ILogger; overload; static;
     class function GetLogger(const AClassName: string): ILogger; overload; static;
+
+    /// <summary>
+    ///   Loggers for any other category: they reach only the adapters whose
+    ///   factory was registered under the same category name.
+    ///
+    ///   The category comes first so it cannot be confused with the class
+    ///   name in the two-string overload.
+    /// </summary>
+    class function GetCategoryLogger(const ACategory: string): ILogger; overload; static;
+    class function GetCategoryLogger(const ACategory: string; AClass: TClass): ILogger; overload; static;
+    class function GetCategoryLogger(const ACategory, AClassName: string): ILogger; overload; static;
+    class function GetCategoryLogger<T:class>(const ACategory: string): ILogger; overload; static;
   end;
 
 const
@@ -211,6 +262,43 @@ implementation
 
 uses
   System.TypInfo, System.Classes, System.DateUtils, System.Rtti;
+
+function GetFullExceptionInfo(E: Exception): string;
+const
+  // Guards against a self-referential or circular InnerException chain
+  MAX_INNER_DEPTH = 16;
+begin
+  var LSB := TStringBuilder.Create;
+  try
+    var LCurrent := E;
+    var LFirst := True;
+    var LDepth := 0;
+    while (LCurrent <> nil) and (LDepth < MAX_INNER_DEPTH) do
+    begin
+      if LFirst then
+      begin
+        LSB.AppendLine(LCurrent.ClassName + ': ' + LCurrent.ToString());
+        LFirst := False;
+      end
+      else
+        LSB.AppendLine('--- Caused by ' + LCurrent.ClassName + ': ' + LCurrent.ToString());
+
+      // .StackTrace requires a provider (JCL, MadExcept, etc.)
+      // If no provider is installed, this remains empty.
+      if LCurrent.StackTrace <> '' then
+        LSB.AppendLine(LCurrent.StackTrace);
+
+      if LCurrent.InnerException = LCurrent then
+        Break;
+
+      LCurrent := LCurrent.InnerException;
+      Inc(LDepth);
+    end;
+    Result := LSB.ToString.TrimRight;
+  finally
+    LSB.Free;
+  end;
+end;
 
 type
   /// <summary>
@@ -256,21 +344,38 @@ type
 
 var
   _Logger: ILogger;
-  _Lock: TCriticalSection;
-  _RegistryLock: TCriticalSection;
+
+  /// <summary>
+  ///   Set at the beginning of the unit finalization. Once the library is
+  ///   shutting down, logging becomes a no-op: the registry is never
+  ///   resurrected and no adapter is touched.
+  /// </summary>
+  _Shutdown: Boolean;
 
 function Logger: ILogger;
+var
+  LNew: ILogger;
 begin
-  if not Assigned(_Logger) then
-  begin
-    _Lock.Acquire;
-    try
-      if not Assigned(_Logger) then
-        _Logger := TMultiLogger.Create('', DEFAULT_CATEGORY);
-    finally
-      _Lock.Release;
-    end;
-  end;
+  // Built on first use, never in the initialization section: inside a DLL, an
+  // OCX or a runtime package the creation order of the units is not ours to
+  // control, so the logger has to be able to appear at any moment.
+
+  if _Shutdown then
+    // Past finalization: hand out an inert logger owned by the caller, rather
+    // than publishing a new global one that nothing would ever release.
+    Exit(TMultiLogger.Create('', DEFAULT_CATEGORY));
+
+  Result := _Logger;
+  if Assigned(Result) then
+    Exit;
+
+  LNew := TMultiLogger.Create('', DEFAULT_CATEGORY);
+  if TInterlocked.CompareExchange(Pointer(_Logger), Pointer(LNew), nil) = nil then
+    // We won the race: the reference counted by LNew now belongs to _Logger,
+    // so let the local one go without releasing it. Whoever loses simply lets
+    // LNew fall out of scope, which frees the loser's instance.
+    Pointer(LNew) := nil;
+
   Result := _Logger;
 end;
 
@@ -288,30 +393,41 @@ end;
 
 constructor TLoggerAdapterRegistry.Create;
 begin
+  FLock := TCriticalSection.Create;
   FRegistry := TDictionary<string, FactoryInfo>.Create;
   FLoggerAdapters := TDictionary<string, LoggerAdapterInfo>.Create;
+  FCategoryCache := TDictionary<string, TArray<ILoggerAdapter>>.Create;
 end;
 
 destructor TLoggerAdapterRegistry.Destroy;
 begin
+  FCategoryCache.Free;
   FLoggerAdapters.Free;
   FRegistry.Free;
+  FLock.Free;
   inherited;
 end;
 
 class function TLoggerAdapterRegistry.GetInstance: TLoggerAdapterRegistry;
+var
+  LNew: TLoggerAdapterRegistry;
 begin
-  if not Assigned(FInstance) then
-  begin
-    _RegistryLock.Acquire;
-    try
-      if not Assigned(FInstance) then
-        FInstance := TLoggerAdapterRegistry.Create;
-    finally
-      _RegistryLock.Release;
-    end;
-  end;
+  // Once finalization has started the registry is gone for good: resurrecting
+  // it would only leak an empty one and silently swallow the log line.
+  if _Shutdown then
+    Exit(nil);
+
   Result := FInstance;
+  if Assigned(Result) then
+    Exit;
+
+  // Lock-free lazy creation: whoever loses the race discards its own instance.
+  LNew := TLoggerAdapterRegistry.Create;
+  Result := TInterlocked.CompareExchange<TLoggerAdapterRegistry>(FInstance, LNew, nil);
+  if Result = nil then
+    Result := LNew
+  else
+    LNew.Free;
 end;
 
 function TLoggerAdapterRegistry.GetFactory(const AName: string): ILoggerAdapterFactory;
@@ -326,33 +442,50 @@ var
   LInfo: FactoryInfo;
 begin
   Result := nil;
-  if FRegistry.TryGetValue(AName, LInfo) then
-    Result := LInfo.Factory;
+  FLock.Acquire;
+  try
+    if FRegistry.TryGetValue(AName, LInfo) then
+      Result := LInfo.Factory;
+  finally
+    FLock.Release;
+  end;
 end;
 
 function TLoggerAdapterRegistry.FindLoggerAdapter(const AName: string): ILoggerAdapter;
 var
-  LReg: TPair<string, LoggerAdapterInfo>;
+  LInfo: LoggerAdapterInfo;
 begin
   Result := nil;
-  for LReg in FLoggerAdapters do
-   if LReg.Key = AName then
-     Result := LReg.Value.LoggerAdapter;
+  FLock.Acquire;
+  try
+    if FLoggerAdapters.TryGetValue(AName, LInfo) then
+      Result := LInfo.LoggerAdapter;
+  finally
+    FLock.Release;
+  end;
 end;
 
 function TLoggerAdapterRegistry.GetLoggerAdapters(const ACategory: string): TArray<ILoggerAdapter>;
 var
   LReg: TPair<string, FactoryInfo>;
-  LLogger: ILoggerAdapter;
 begin
-  Result := [];
+  FLock.Acquire;
+  try
+    if FCategoryCache.TryGetValue(ACategory, Result) then
+      Exit;
 
-  for LReg in FRegistry do
-    if LReg.Value.Category = ACategory then
-    begin
-      LLogger := GetOrCreateLoggerAdapter(LReg.Key);
-      Result := Result + [LLogger];
-    end;
+    Result := [];
+    for LReg in FRegistry do
+      if LReg.Value.Category = ACategory then
+        Result := Result + [GetOrCreateLoggerAdapter(LReg.Key)];
+
+    // An empty category is cached too: "nothing registered" is the hot path
+    FCategoryCache.Add(ACategory, Result);
+  finally
+    FLock.Release;
+  end;
+  // The array is refcounted, so the caller can iterate it outside the lock
+  // even if another thread invalidates the cache in the meantime.
 end;
 
 function TLoggerAdapterRegistry.GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
@@ -360,14 +493,25 @@ var
   LLoggerAdapterInfo: LoggerAdapterInfo;
   LFactoryInfo: FactoryInfo;
 begin
+  Result := nil;
   if FLoggerAdapters.TryGetValue(AName, LLoggerAdapterInfo) then
     Exit(LLoggerAdapterInfo.LoggerAdapter);
 
   if FRegistry.TryGetValue(AName, LFactoryInfo) then
   begin
+    // Built while holding the lock: an adapter must never be created twice,
+    // and some of them (files) own threads and handles.
     Result := LFactoryInfo.Factory.CreateLoggerAdapter;
     FLoggerAdapters.Add(AName, LoggerAdapterInfo.New(LFactoryInfo.Category, Result));
   end;
+end;
+
+procedure TLoggerAdapterRegistry.InternalUnregisterFactory(const AName: string);
+begin
+  // The cached adapter has to go as well: re-registering the same name must
+  // not resurrect the adapter built by the previous factory.
+  FLoggerAdapters.Remove(AName);
+  FRegistry.Remove(AName);
 end;
 
 procedure TLoggerAdapterRegistry.RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerAdapterFactoryClass);
@@ -387,7 +531,65 @@ end;
 
 procedure TLoggerAdapterRegistry.RegisterFactory(const ACategory: string; AFactory: ILoggerAdapterFactory);
 begin
-  FRegistry.Add(AFactory.GetUniqueName, FactoryInfo.New(ACategory, AFactory));
+  FLock.Acquire;
+  try
+    FRegistry.Add(AFactory.GetUniqueName, FactoryInfo.New(ACategory, AFactory));
+    FCategoryCache.Clear;
+  finally
+    FLock.Release;
+  end;
+end;
+
+procedure TLoggerAdapterRegistry.UnregisterFactory(const AName: string);
+begin
+  FLock.Acquire;
+  try
+    InternalUnregisterFactory(AName);
+    FCategoryCache.Clear;
+  finally
+    FLock.Release;
+  end;
+end;
+
+procedure TLoggerAdapterRegistry.UnregisterFactory(AFactory: ILoggerAdapterFactory);
+begin
+  if Assigned(AFactory) then
+    UnregisterFactory(AFactory.GetUniqueName);
+end;
+
+procedure TLoggerAdapterRegistry.UnregisterCategory(const ACategory: string);
+var
+  LReg: TPair<string, FactoryInfo>;
+  LNames: TArray<string>;
+  LName: string;
+begin
+  FLock.Acquire;
+  try
+    // Collected first: the dictionary cannot be modified while enumerating it
+    LNames := [];
+    for LReg in FRegistry do
+      if LReg.Value.Category = ACategory then
+        LNames := LNames + [LReg.Key];
+
+    for LName in LNames do
+      InternalUnregisterFactory(LName);
+
+    FCategoryCache.Clear;
+  finally
+    FLock.Release;
+  end;
+end;
+
+procedure TLoggerAdapterRegistry.Clear;
+begin
+  FLock.Acquire;
+  try
+    FCategoryCache.Clear;
+    FLoggerAdapters.Clear;
+    FRegistry.Clear;
+  finally
+    FLock.Release;
+  end;
 end;
 
 function TLoggerAdapterRegistry.CreateLoggerAdapter(AName: string): ILoggerAdapter;
@@ -395,8 +597,13 @@ var
   LInfo: FactoryInfo;
 begin
   Result := nil;
-  if FRegistry.TryGetValue(AName, LInfo) then
-    Result := LInfo.Factory.CreateLoggerAdapter;
+  FLock.Acquire;
+  try
+    if FRegistry.TryGetValue(AName, LInfo) then
+      Result := LInfo.Factory.CreateLoggerAdapter;
+  finally
+    FLock.Release;
+  end;
 end;
 
 { TLoggerAdapterRegistry.LoggerAdapterInfo }
@@ -481,6 +688,9 @@ procedure TMultiLogger.LogRawLine(const AMsg: string; ALevel: TLogLevel);
 var
   LLoggerAdapter: ILoggerAdapter;
 begin
+  if _Shutdown or not Assigned(FRegistry) then
+    Exit;
+
   for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
     LLoggerAdapter.WriteRawLine(AMsg, ALevel);
 end;
@@ -489,6 +699,9 @@ procedure TMultiLogger.Log(AException: Exception; const AMsg: string; ALevel: TL
 var
   LLoggerAdapter: ILoggerAdapter;
 begin
+  if _Shutdown or not Assigned(FRegistry) then
+    Exit;
+
   for LLoggerAdapter in FRegistry.GetLoggerAdapters(FCategory) do
     LLoggerAdapter.WriteLog(FClassName, AMsg, AException, ALevel);
 end;
@@ -567,32 +780,14 @@ begin
 end;
 
 function TLoggerAdapterHelper.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
-const
-  LOG_STD = '%s' + sLineBreak + '%s : %s';
-  LOG_STACK = LOG_STD + sLineBreak + '%s';
 var
-  LStackTrace: string;
   LMsg: string;
   LClassName: string;
   LIndex: Integer;
 begin
   if AException <> nil then
-  begin
-    LStackTrace := AException.StackTrace;
-    if LStackTrace <> '' then
-      LMsg := Format(LOG_STACK, [
-        AMessage,
-        AException.ClassName(),
-        AException.ToString(),
-        LStackTrace
-      ])
-    else
-      LMsg := Format(LOG_STD, [
-        AMessage,
-        AException.ClassName,
-        AException.ToString
-      ]);
-  end
+    // Walks the whole InnerException chain, stack traces included
+    LMsg := AMessage + sLineBreak + GetFullExceptionInfo(AException)
   else
     LMsg := AMessage;
 
@@ -684,12 +879,33 @@ begin
   Result := GetLogger(PTypeInfo(TypeInfo(T)).TypeData.ClassType.QualifiedClassName());
 end;
 
+class function TLoggerManager.GetCategoryLogger(const ACategory: string): ILogger;
+begin
+  Result := TMultiLogger.Create('', ACategory);
+end;
+
+class function TLoggerManager.GetCategoryLogger(const ACategory: string; AClass: TClass): ILogger;
+begin
+  Result := TMultiLogger.Create(AClass.QualifiedClassName(), ACategory);
+end;
+
+class function TLoggerManager.GetCategoryLogger(const ACategory, AClassName: string): ILogger;
+begin
+  Result := TMultiLogger.Create(AClassName, ACategory);
+end;
+
+class function TLoggerManager.GetCategoryLogger<T>(const ACategory: string): ILogger;
+begin
+  Result := GetCategoryLogger(ACategory, PTypeInfo(TypeInfo(T)).TypeData.ClassType.QualifiedClassName());
+end;
+
 initialization
-  _Lock := TCriticalSection.Create;
-  _RegistryLock := TCriticalSection.Create;
+  // Deliberately empty: everything here is created on first use, so the unit
+  // imposes no initialization order on its host (DLL, OCX, runtime package).
 
 finalization
-  FreeAndNil(_Lock);
-  FreeAndNil(_RegistryLock);
+  // Must come first: background threads still calling Logger while the process
+  // shuts down have to find the library already disarmed.
+  _Shutdown := True;
 
 end.
