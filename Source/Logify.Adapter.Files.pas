@@ -117,6 +117,12 @@ type
       FMessages: TQueue<UTF8String>;
       FCapacity: Integer;
       FDropped: Integer;
+      /// <summary>
+      ///   Auto-reset event signalled by every Push: the writer thread sleeps
+      ///   on it instead of polling, so an idle logger burns no CPU and a
+      ///   single message reaches the file in microseconds, not 50 ms.
+      /// </summary>
+      FSignal: TEvent;
     public
       /// <summary>ACapacity 0 means no limit</summary>
       constructor Create(ACapacity: Integer);
@@ -144,7 +150,6 @@ type
     TMessageWriter = class(TThread)
     private
       FConfig: TFileLogConfig;
-      FSleepInterval: Integer;
       FWrittenBytes: Int64;
       FQueue: TMessageQueue;
 
@@ -174,6 +179,7 @@ type
       procedure ConsumeQueueBuffered(var AStream: TFileStream);
     protected
       procedure Execute; override;
+      procedure TerminatedSet; override;
       procedure Stop;
     public
       constructor Create(const AConfig: TFileLogConfig; AQueue: TMessageQueue);
@@ -514,8 +520,6 @@ begin
   FConfig := AConfig;
   FQueue := AQueue;
   FReady := TEvent.Create(nil, True, False, '');
-
-  FSleepInterval := 50;
 end;
 
 destructor TLogFile.TMessageWriter.Destroy;
@@ -572,7 +576,9 @@ begin
           SetError(E.ClassName + ': ' + E.Message);
       end;
 
-      Sleep(TInterlocked.CompareExchange(FSleepInterval, 0, 0));
+      // Sleep until a push, a Stop or a Terminate wakes us: no polling, no
+      // idle CPU, and no latency from a fixed sleep interval.
+      FQueue.FSignal.WaitFor;
     end;
 
     // Terminated. Whatever is still queued was accepted from the caller and
@@ -586,6 +592,14 @@ begin
   finally
     LStream.Free;
   end;
+end;
+
+procedure TLogFile.TMessageWriter.TerminatedSet;
+begin
+  inherited;
+  // The loop sleeps on the queue's event: without this it would never notice
+  // the termination request and WaitFor would hang.
+  FQueue.FSignal.SetEvent;
 end;
 
 procedure TLogFile.TMessageWriter.SetError(const AError: string);
@@ -645,12 +659,10 @@ end;
 
 procedure TLogFile.TMessageWriter.Stop;
 begin
-  // Written from EndLogging (any thread) while the writer thread reads it in
-  // its sleep: Interlocked keeps the two in step.
-  TInterlocked.Exchange(FSleepInterval, 2);
-  // EndLogging's contract is that the queue ends up on disk: the writer has
-  // to push whatever is still sitting in the stream buffer.
+  // EndLogging: wake the writer and ask it to push whatever is still sitting
+  // in the stream buffer to the file.
   TInterlocked.Exchange(FFlushRequested, True);
+  FQueue.FSignal.SetEvent;
 end;
 
 function TLogFile.TMessageWriter.CreateLogFile: TFileStream;
@@ -768,12 +780,14 @@ end;
 constructor TLogFile.TMessageQueue.Create(ACapacity: Integer);
 begin
   FMessages := TQueue<UTF8String>.Create;
+  FSignal := TEvent.Create(nil, False, False, '');
   FCapacity := ACapacity;
 end;
 
 destructor TLogFile.TMessageQueue.Destroy;
 begin
   FMessages.Free;
+  FSignal.Free;
   inherited;
 end;
 
@@ -826,6 +840,11 @@ begin
   finally
     UnLock;
   end;
+
+  // Wake the writer: signalling outside the lock keeps the producers from
+  // contending with the consumer for it, and an auto-reset event means one
+  // signal covers any number of messages that arrived since the last drain.
+  FSignal.SetEvent;
 end;
 
 function TLogFile.TMessageQueue.TakeDropped: Integer;

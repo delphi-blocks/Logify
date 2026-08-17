@@ -60,6 +60,8 @@ type
     [Test]
     procedure BufferedRecordsAreFlushedAtShutdown;
     [Test]
+    procedure ASingleMessageWakesTheIdleWriter;
+    [Test]
     procedure EveryMessageSurvivesUnbuffered;
     [Test]
     procedure TheQueueIsEmptyOnceTheAdapterIsGone;
@@ -280,6 +282,32 @@ begin
 
   Release;
   Assert.AreEqual(50, TotalLines, 'shutdown has to flush the buffer');
+end;
+
+procedure TFileAdapterTests.ASingleMessageWakesTheIdleWriter;
+var
+  LFiles: TLogifyAdapterFiles;
+  LWatch: TStopwatch;
+begin
+  NewAdapter(True);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+
+  // Let the writer fall idle: with the event loop it sleeps until signalled
+  Sleep(100);
+
+  FAdapter.WriteLog('', 'the wake-up call', nil, TLogLevel.Info);
+
+  // The push has to wake it: without the signal it would sleep forever and
+  // the queue would never drain
+  LWatch := TStopwatch.StartNew;
+  while (LFiles.GetMessagesToWrite > 0) and (LWatch.ElapsedMilliseconds < 5000) do
+    Sleep(10);
+
+  Assert.AreEqual(0, LFiles.GetMessagesToWrite,
+    'a push has to wake the sleeping writer');
+
+  Release;
+  Assert.AreEqual(1, TotalLines);
 end;
 
 procedure TFileAdapterTests.EveryMessageSurvivesUnbuffered;
