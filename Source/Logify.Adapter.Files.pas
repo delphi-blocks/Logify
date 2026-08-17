@@ -544,6 +544,21 @@ var
   LLastLog: string;
   LList: TArray<string>;
 begin
+  // A FullName points at one specific file, possibly outside FPath, so the
+  // GetLogList pattern can never match it. Append to it directly, falling
+  // back to creating it when it does not exist yet: without this, append mode
+  // truncated the FullName file on every restart (or wrote to a stray
+  // FName+FExt file instead).
+  if (FConfig.LogType = TLogType.Single) and (not FConfig.FullName.IsEmpty) then
+  begin
+    try
+      Result := TFileStream.Create(FConfig.FullName, fmOpenReadWrite or fmShareDenyWrite);
+    except
+      Result := CreateLogFile;
+    end;
+    Exit;
+  end;
+
   LList := FConfig.GetLogList;
 
   if Length(LList) = 0 then

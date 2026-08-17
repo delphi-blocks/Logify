@@ -39,6 +39,7 @@ type
     procedure NewAdapter(ABuffered: Boolean); overload;
     procedure NewAdapter(ABuffered: Boolean; AMaxQueueSize: Integer); overload;
     procedure NewRotatingAdapter(ARotateSize, ARotateItems: Integer);
+    procedure NewAppendAdapter(const AFullName: string);
     procedure Release;
     function LogFiles: TArray<string>;
     function TotalLines: Integer;
@@ -71,6 +72,13 @@ type
     procedure AWriterThatCannotOpenItsFileDoesNotBlockTheCaller;
     [Test]
     procedure AFailedWriterReportsWhyAndDropsMessages;
+
+    // Append + FullName: the file to continue is the one the config names,
+    // not whatever the pattern happens to find
+    [Test]
+    procedure AppendContinuesTheFullNameFileAcrossRestarts;
+    [Test]
+    procedure AppendWithFullNamePrefersItOverPatternFiles;
 
     // A queue that cannot grow without limit
     [Test]
@@ -151,6 +159,22 @@ begin
     begin
       AConfig.SetLogRotate(TLogLevel.Trace, False, LOG_NAME, LDir, 'log',
         ARotateItems, ARotateSize);
+    end);
+
+  FAdapter := LFactory.CreateLoggerAdapter;
+end;
+
+procedure TFileAdapterTests.NewAppendAdapter(const AFullName: string);
+var
+  LFactory: ILoggerAdapterFactory;
+  LDir: string;
+begin
+  LDir := FDir;
+  LFactory := TLogifyAdapterFilesFactory.CreateAdapterFactory(UniqueName,
+    procedure(var AConfig: TFileLogConfig)
+    begin
+      AConfig.SetLogSingle(TLogLevel.Trace, True, LOG_NAME, LDir, 'log');
+      AConfig.FullName := AFullName;
     end);
 
   FAdapter := LFactory.CreateLoggerAdapter;
@@ -324,6 +348,57 @@ begin
   Assert.IsNotEmpty(LFiles.LastError, 'the reason has to be reachable');
   Assert.AreEqual(0, LFiles.GetMessagesToWrite,
     'messages must be dropped, not queued for a thread that will never run');
+end;
+
+procedure TFileAdapterTests.AppendContinuesTheFullNameFileAcrossRestarts;
+var
+  LFullName: string;
+begin
+  // FullName lives outside the pattern directory, so GetLogList can never see
+  // it: the second adapter has to continue the same file, not recreate it
+  LFullName := TPath.Combine(TPath.Combine(FDir, 'elsewhere'), 'custom.log');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(LFullName));
+
+  NewAppendAdapter(LFullName);
+  FAdapter.WriteLog('', 'first life', nil, TLogLevel.Info);
+  Release;
+
+  // Same configuration, new "process"
+  NewAppendAdapter(LFullName);
+  FAdapter.WriteLog('', 'second life', nil, TLogLevel.Info);
+  Release;
+
+  Assert.Contains(TFile.ReadAllText(LFullName), 'first life');
+  Assert.Contains(TFile.ReadAllText(LFullName), 'second life');
+  Assert.AreEqual(2, Length(TFile.ReadAllLines(LFullName)));
+end;
+
+procedure TFileAdapterTests.AppendWithFullNamePrefersItOverPatternFiles;
+var
+  LFullName: string;
+  LPatternFile: string;
+begin
+  // A file matching the pattern exists in the configured path: append mode has
+  // to follow FullName, not grab the first pattern match
+  LFullName := TPath.Combine(TPath.Combine(FDir, 'elsewhere'), 'custom.log');
+  TDirectory.CreateDirectory(TPath.GetDirectoryName(LFullName));
+
+  NewAppendAdapter(LFullName);
+  FAdapter.WriteLog('', 'first life', nil, TLogLevel.Info);
+  Release;
+
+  // A decoy the pattern would match
+  LPatternFile := TPath.Combine(FDir, LOG_NAME + '.log');
+  TFile.WriteAllText(LPatternFile, 'decoy' + sLineBreak);
+
+  NewAppendAdapter(LFullName);
+  FAdapter.WriteLog('', 'second life', nil, TLogLevel.Info);
+  Release;
+
+  Assert.Contains(TFile.ReadAllText(LFullName), 'second life',
+    'the second session has to keep using the FullName file');
+  Assert.IsFalse(TFile.ReadAllText(LPatternFile).Contains('second life'),
+    'the pattern file must not steal the log');
 end;
 
 procedure TFileAdapterTests.AFullQueueDropsInsteadOfGrowing;

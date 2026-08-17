@@ -114,7 +114,7 @@ This indirection is what keeps a configured file logger from opening files, spaw
 Diagram for the Logify library architecture:
 
 <p align="center">
-  <img src="diagram.jpg" alt="Logify Architecture" width="600" />
+  <img src="diagram.jpg" alt="Logify Architecture" />
 </p>
 
 ## Log levels 🎚️
