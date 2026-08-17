@@ -116,6 +116,8 @@ type
     procedure ARotateConfigurationIsFullyInitialized;
     [Test]
     procedure ARotateSizeOfZeroFallsBackToTheDefault;
+    [Test]
+    procedure AHandBuiltConfigIsFullyInitialized;
   end;
 
 implementation
@@ -701,8 +703,9 @@ procedure TFileAdapterTests.ASingleConfigurationIsFullyInitialized;
 var
   LConfig: TFileLogConfig;
 begin
-  // A record result only has its managed fields initialized: everything else
-  // has to be set explicitly or it carries whatever was on the stack
+  // Initialize gives the record coherent defaults, but the setters still have
+  // to set everything explicitly: this guards against one of them forgetting
+  // a field and silently shipping the default instead of what was asked for
   LConfig := TFileLogConfig.NewSingle(TLogLevel.Info);
 
   Assert.AreEqual(Ord(TLogType.Single), Ord(LConfig.LogType));
@@ -737,6 +740,21 @@ begin
   LConfig.RotateSize := -5;
   Assert.AreEqual(10485760, LConfig.RotateSize,
     'a negative RotateSize has to fall back to the default');
+end;
+
+procedure TFileAdapterTests.AHandBuiltConfigIsFullyInitialized;
+var
+  LConfig: TFileLogConfig;
+begin
+  // No NewSingle/NewRotate: a bare record has to come up with coherent
+  // defaults, not whatever happened to be on the stack
+  Assert.AreEqual(Ord(TLogType.Single), Ord(LConfig.LogType));
+  Assert.IsTrue(LConfig.Append, 'Append was left uninitialized');
+  Assert.IsTrue(LConfig.Buffered, 'Buffered was left uninitialized');
+  Assert.AreEqual(Ord(TLogLevel.Info), Ord(LConfig.Level));
+  Assert.IsTrue(LConfig.RotateItems > 0, 'RotateItems was left uninitialized');
+  Assert.IsTrue(LConfig.RotateSize > 0, 'RotateSize was left uninitialized');
+  Assert.IsTrue(LConfig.MaxQueueSize > 0, 'the queue is unbounded by default');
 end;
 
 initialization

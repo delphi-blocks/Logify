@@ -55,6 +55,14 @@ type
     function BuildRotateName: string;
     function GetLogList: TArray<string>;
   public
+    /// <summary>
+    ///   Runs when any instance of the record comes into existence: a bare
+    ///   "var LConfig: TFileLogConfig" used to carry whatever was on the
+    ///   stack, which a caller that forgot NewSingle/NewRotate would feed to
+    ///   the factory. Now every instance starts as a coherent default.
+    /// </summary>
+    class operator Initialize(out Dest: TFileLogConfig);
+
     class function NewSingle(ALevel: TLogLevel; AAppend: Boolean = True;
       const AName: string = ''; const APath: string = '.\logs';
       const AExt: string = '.log'): TFileLogConfig; static;
@@ -946,6 +954,24 @@ class function TFileLogConfig.NewSingle(ALevel: TLogLevel; AAppend: Boolean;
   const AName, APath, AExt: string): TFileLogConfig;
 begin
   Result.SetLogSingle(ALevel, AAppend, AName, APath, AExt);
+end;
+
+class operator TFileLogConfig.Initialize(out Dest: TFileLogConfig);
+begin
+  // Same defaults as SetLogSingle: a record created by hand (without
+  // NewSingle/NewRotate) used to carry whatever was on the stack in its
+  // non-managed fields, silently misconfiguring the adapter.
+  Dest.FLogType := TLogType.Single;
+  Dest.FAppend := True;
+  Dest.FBuffered := DEFAULT_BUFFERED;
+  Dest.FExt := '';
+  Dest.FFullName := '';
+  Dest.FName := '';
+  Dest.FPath := '';
+  Dest.FLevel := TLogLevel.Info;
+  Dest.FRotateSize := DEFAULT_ROTATE_SIZE;
+  Dest.FRotateItems := DEFAULT_ROTATE_ITEMS;
+  Dest.FMaxQueueSize := DEFAULT_MAX_QUEUE_SIZE;
 end;
 
 procedure TFileLogConfig.SetExt(const Value: string);
