@@ -69,6 +69,8 @@ type
     procedure EveryMessageSurvivesUnbuffered;
     [Test]
     procedure TheQueueIsEmptyOnceTheAdapterIsGone;
+    [Test]
+    procedure AUnixTerminatedMessageGetsOnePlatformBreak;
 
     // Rotation
     [Test]
@@ -398,6 +400,19 @@ begin
 
   Assert.AreEqual(0, LFiles.GetMessagesToWrite,
     'FinalizeLogger has to leave the queue on disk, not in memory');
+end;
+
+procedure TFileAdapterTests.AUnixTerminatedMessageGetsOnePlatformBreak;
+var
+  LText: string;
+begin
+  NewAdapter(True);
+  FAdapter.WriteRawLine('unix style' + #10, TLogLevel.Info);
+  Release;
+
+  LText := TFile.ReadAllText(TPath.Combine(FDir, LOG_NAME + '.log'));
+  Assert.AreEqual('unix style' + sLineBreak, LText,
+    'the trailing #10 has to be normalized to the platform line break');
 end;
 
 procedure TFileAdapterTests.NoFileGrowsFarBeyondTheRotateSize;

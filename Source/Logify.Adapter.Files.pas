@@ -140,7 +140,6 @@ type
       procedure Lock; inline;
       procedure UnLock;inline;
 
-      procedure Clear;
       procedure Push(const AItem: UTF8String);
       function Pop: UTF8String;
       function PopAll: TArray<UTF8String>;
@@ -237,7 +236,7 @@ type
     procedure SetLastError(const AError: string);
     function GetLastError: string;
     function GetStarted: Boolean;
-    function GetMessagesToWrite: Integer;
+    function GetMessagesToWrite: NativeInt;
   public
     constructor Create(const AConfig: TFileLogConfig);
     destructor Destroy; override;
@@ -247,7 +246,7 @@ type
 
     procedure AddStr(const AString: string);
 
-    property MessagesToWrite: Integer read GetMessagesToWrite;
+    property MessagesToWrite: NativeInt read GetMessagesToWrite;
 
     /// <summary>
     ///   False when the writer thread could not open its file, or once
@@ -278,7 +277,7 @@ type
     procedure InitializeLogger; virtual;
     procedure FinalizeLogger; virtual;
 
-    function GetMessagesToWrite: Integer;
+    function GetMessagesToWrite: NativeInt;
 
     /// <summary>
     ///   False when the writer thread could not open its file. The adapter
@@ -444,19 +443,30 @@ begin
 end;
 
 procedure TLogFile.AddStr(const AString: string);
+var
+  LLength: Integer;
 begin
   // Nobody is consuming: queueing would only grow the queue for the lifetime
   // of the process
   if not GetStarted then
     Exit;
 
-  if AString.EndsWith(sLineBreak) then
-    FQueue.Push(UTF8String(AString))
-  else
-    FQueue.Push(UTF8String(AString + sLineBreak));
+  // Normalize the line ending: a message already ending in #10/#13 (Unix
+  // style, or a bare CR) is stripped and re-terminated with the platform's
+  // break, so the file never mixes CRLF with other line endings.
+  LLength := Length(AString);
+  if (LLength > 0) and CharInSet(AString[LLength], [#10, #13]) then
+  begin
+    while (LLength > 0) and CharInSet(AString[LLength], [#10, #13]) do
+      Dec(LLength);
+    FQueue.Push(UTF8String(Copy(AString, 1, LLength) + sLineBreak));
+    Exit;
+  end;
+
+  FQueue.Push(UTF8String(AString + sLineBreak));
 end;
 
-function TLogFile.GetMessagesToWrite: Integer;
+function TLogFile.GetMessagesToWrite: NativeInt;
 begin
   Result := FQueue.Count;
 end;
@@ -771,16 +781,6 @@ end;
 
 { TLogFile.TMessageQueue }
 
-procedure TLogFile.TMessageQueue.Clear;
-begin
-  Lock;
-  try
-    FMessages.Clear;
-  finally
-    UnLock;
-  end;
-end;
-
 function TLogFile.TMessageQueue.Count: NativeInt;
 begin
   Lock;
@@ -1088,7 +1088,7 @@ begin
     FLogger.EndLogging;
 end;
 
-function TLogifyAdapterFiles.GetMessagesToWrite: Integer;
+function TLogifyAdapterFiles.GetMessagesToWrite: NativeInt;
 begin
   Result := 0;
   if Assigned(FLogger) then
