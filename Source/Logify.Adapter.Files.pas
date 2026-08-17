@@ -241,9 +241,9 @@ type
     property MessagesToWrite: Integer read GetMessagesToWrite;
 
     /// <summary>
-    ///   False when the writer thread could not open its file. The logger
-    ///   then drops messages instead of queueing them for a thread that will
-    ///   never consume them.
+    ///   False when the writer thread could not open its file, or once
+    ///   EndLogging has stopped the logger. The logger then drops messages
+    ///   instead of queueing them.
     /// </summary>
     property Started: Boolean read GetStarted;
     property LastError: string read GetLastError;
@@ -385,12 +385,15 @@ procedure TLogFile.EndLogging;
 var
   LWatch: TStopwatch;
 begin
-  if not GetStarted then
+  // Stop accepting first: everything already queued is drained below, and no
+  // producer can keep feeding the drain while it runs. A second call (or the
+  // destructor) sees FStarted already cleared and returns immediately.
+  if TInterlocked.Exchange(FStarted, False) = False then
     Exit;
 
-  // Ask the writer to poll faster, then give it a bounded window to put the
-  // queue on disk. Without this the messages logged just before shutdown, the
-  // interesting ones, are the ones that never arrive.
+  // Wake the writer and give it a bounded window to put the queue on disk.
+  // Without this the messages logged just before shutdown, the interesting
+  // ones, are the ones that never arrive.
   FWriter.Stop;
 
   LWatch := TStopwatch.StartNew;
@@ -423,7 +426,9 @@ begin
     Exit;
   end;
 
-  if FConfig.LogType = TLogType.Rotate then
+  // EndLogging may have stopped the logger; a restart has to leave the
+  // already-started threads alone, exactly like the writer above.
+  if (FConfig.LogType = TLogType.Rotate) and (not FRotateTimer.Started) then
     FRotateTimer.Start;
 
   TInterlocked.Exchange(FStarted, True);

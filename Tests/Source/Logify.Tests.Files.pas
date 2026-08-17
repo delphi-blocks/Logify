@@ -62,6 +62,10 @@ type
     [Test]
     procedure ASingleMessageWakesTheIdleWriter;
     [Test]
+    procedure AfterFinalizeNewMessagesAreDropped;
+    [Test]
+    procedure AfterFinalizeTheLoggerCanRestart;
+    [Test]
     procedure EveryMessageSurvivesUnbuffered;
     [Test]
     procedure TheQueueIsEmptyOnceTheAdapterIsGone;
@@ -308,6 +312,55 @@ begin
 
   Release;
   Assert.AreEqual(1, TotalLines);
+end;
+
+procedure TFileAdapterTests.AfterFinalizeNewMessagesAreDropped;
+var
+  LFiles: TLogifyAdapterFiles;
+begin
+  NewAdapter(True);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+  FAdapter.WriteLog('', 'before', nil, TLogLevel.Info);
+
+  LFiles.FinalizeLogger;
+
+  // Ended: the adapter reports it and stops accepting
+  Assert.IsFalse(LFiles.IsStarted, 'FinalizeLogger has to end the logger');
+  Assert.AreEqual(0, LFiles.GetMessagesToWrite,
+    'the queue has to be drained by the end');
+
+  FAdapter.WriteLog('', 'after', nil, TLogLevel.Info);
+  Assert.AreEqual(0, LFiles.GetMessagesToWrite,
+    'messages logged after the end have to be dropped');
+
+  Release;
+  Assert.AreEqual(1, TotalLines, 'only the message logged before the end may appear');
+end;
+
+procedure TFileAdapterTests.AfterFinalizeTheLoggerCanRestart;
+var
+  LFiles: TLogifyAdapterFiles;
+begin
+  // A rotating config on purpose: restarting has to leave the already-started
+  // rotation thread alone, or its second Start would raise
+  NewRotatingAdapter(2000, 500);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+  FAdapter.WriteLog('', 'first life', nil, TLogLevel.Info);
+
+  LFiles.FinalizeLogger;
+  Assert.IsFalse(LFiles.IsStarted, 'FinalizeLogger has to end the logger');
+
+  Assert.WillNotRaiseAny(
+    procedure
+    begin
+      LFiles.InitializeLogger;
+    end);
+  Assert.IsTrue(LFiles.IsStarted, 'InitializeLogger has to restart the logger');
+
+  FAdapter.WriteLog('', 'second life', nil, TLogLevel.Info);
+  Release;
+
+  Assert.AreEqual(2, TotalLines, 'both sessions have to reach the file');
 end;
 
 procedure TFileAdapterTests.EveryMessageSurvivesUnbuffered;
