@@ -699,23 +699,15 @@ begin
 end;
 
 function TLogFile.TMessageQueue.PopAll: TArray<UTF8String>;
-//var
-//  LStr: string;
 begin
   Lock;
   try
-    //Result := FMessages.ToArray;
-
-    Result := [];
-    while FMessages.Count > 0 do
-      Result := Result + [FMessages.Dequeue];
-
-    {
-    Result := '';
-    for LStr in FMessages do
-      Result := Result + LStr;
+    // One allocation for the whole batch: appending one element at a time
+    // ("Result := Result + [...]") copies the whole array on every iteration,
+    // O(n^2) total, which stalled the writer thread for seconds when a full
+    // queue drained.
+    Result := FMessages.ToArray;
     FMessages.Clear;
-    }
   finally
     UnLock;
   end;

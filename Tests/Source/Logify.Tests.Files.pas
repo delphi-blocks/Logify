@@ -29,6 +29,9 @@ type
   TFileAdapterTests = class
   private const
     MESSAGES = 2000;
+    // The default TFileLogConfig.MaxQueueSize, and the scale at which the
+    // queue drain has to stay fast: a full queue is drained in one pass.
+    FULL_QUEUE = 100000;
     LOG_NAME = 'test';
   private
     FDir: string;
@@ -87,6 +90,8 @@ type
     procedure DroppedMessagesAreReportedInTheLog;
     [Test]
     procedure AZeroLimitKeepsEverything;
+    [Test]
+    procedure EveryMessageSurvivesAtTheDefaultQueueLimit;
 
     // Configuration
     [Test]
@@ -451,6 +456,22 @@ begin
   Release;
 
   Assert.AreEqual(MESSAGES, TotalLines);
+end;
+
+procedure TFileAdapterTests.EveryMessageSurvivesAtTheDefaultQueueLimit;
+var
+  LIndex: Integer;
+begin
+  // The default MaxQueueSize is the designed limit, and a fast producer can
+  // fill it in milliseconds: the writer has to keep draining, and the shutdown
+  // pass has to move whatever is still queued to the file in one go. Draining
+  // a full queue used to be O(n^2), stalling the writer thread for seconds.
+  NewAdapter(True, FULL_QUEUE);
+  for LIndex := 1 to FULL_QUEUE do
+    FAdapter.WriteLog('', 'line ' + LIndex.ToString, nil, TLogLevel.Info);
+  Release;
+
+  Assert.AreEqual(FULL_QUEUE, TotalLines);
 end;
 
 procedure TFileAdapterTests.ASingleConfigurationIsFullyInitialized;
