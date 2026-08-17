@@ -47,6 +47,7 @@ type
     procedure Release;
     function LogFiles: TArray<string>;
     function TotalLines: Integer;
+    function LinesIn(const AFile: string): Integer;
   public
     [Setup]
     procedure Setup;
@@ -56,6 +57,8 @@ type
     // Nothing may be lost between the caller and the file
     [Test]
     procedure EveryMessageSurvivesAnImmediateShutdown;
+    [Test]
+    procedure BufferedRecordsAreFlushedAtShutdown;
     [Test]
     procedure EveryMessageSurvivesUnbuffered;
     [Test]
@@ -213,6 +216,30 @@ begin
     Inc(Result, Length(TFile.ReadAllLines(LFile)));
 end;
 
+function TFileAdapterTests.LinesIn(const AFile: string): Integer;
+var
+  LStream: TFileStream;
+  LBytes: TBytes;
+  LIndex: Integer;
+begin
+  // The writer holds the file with fmShareDenyWrite, so a read while it is
+  // running has to open with a compatible share mode; TFile.ReadAllLines
+  // denies write on its side and fails with a sharing violation.
+  LStream := TFileStream.Create(AFile, fmOpenRead or fmShareDenyNone);
+  try
+    SetLength(LBytes, LStream.Size);
+    if LStream.Size > 0 then
+      LStream.ReadBuffer(LBytes[0], LStream.Size);
+  finally
+    LStream.Free;
+  end;
+
+  Result := 0;
+  for LIndex := 0 to Length(LBytes) - 1 do
+    if LBytes[LIndex] = 10 then
+      Inc(Result);
+end;
+
 procedure TFileAdapterTests.EveryMessageSurvivesAnImmediateShutdown;
 var
   LIndex: Integer;
@@ -226,6 +253,33 @@ begin
   Release;
 
   Assert.AreEqual(MESSAGES, TotalLines);
+end;
+
+procedure TFileAdapterTests.BufferedRecordsAreFlushedAtShutdown;
+var
+  LFiles: TLogifyAdapterFiles;
+  LIndex: Integer;
+  LWatch: TStopwatch;
+begin
+  // Fewer records than one stream buffer: once the writer has drained the
+  // queue they still sit in the buffer, and only shutdown pushes them out.
+  NewAdapter(True);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+
+  for LIndex := 1 to 50 do
+    FAdapter.WriteLog('', 'line ' + LIndex.ToString, nil, TLogLevel.Info);
+
+  // The writer polls every 50 ms: wait for the queue to empty
+  LWatch := TStopwatch.StartNew;
+  while (LFiles.GetMessagesToWrite > 0) and (LWatch.ElapsedMilliseconds < 5000) do
+    Sleep(10);
+
+  Assert.AreEqual(0, LFiles.GetMessagesToWrite, 'the writer has to drain the queue');
+  Assert.AreEqual(0, LinesIn(TPath.Combine(FDir, LOG_NAME + '.log')),
+    'a sub-buffer batch has to stay buffered, not reach the file early');
+
+  Release;
+  Assert.AreEqual(50, TotalLines, 'shutdown has to flush the buffer');
 end;
 
 procedure TFileAdapterTests.EveryMessageSurvivesUnbuffered;

@@ -156,6 +156,8 @@ type
       FReady: TEvent;
       FFailed: Boolean;
       FLastError: string;
+      /// <summary>Set by Stop: the buffered stream has to reach the file</summary>
+      FFlushRequested: Boolean;
 
       procedure SetError(const AError: string);
       function GetLastError: string;
@@ -163,6 +165,8 @@ type
       function RecoverLastLog: TFileStream;
       function CreateLogFile: TFileStream;
       function CreateNextLog(AStream: TFileStream): TFileStream;
+      function OpenStream(const AFileName: string; AMode: Word): TFileStream;
+      procedure FlushStream(AStream: TFileStream);
 
       procedure WriteRecord(var AStream: TFileStream; const AMessage: UTF8String);
       procedure ConsumeAvailable(var AStream: TFileStream);
@@ -557,6 +561,10 @@ begin
     begin
       try
         ConsumeAvailable(LStream);
+        // EndLogging asked for the queue to reach the file: push whatever is
+        // still sitting in the stream buffer.
+        if TInterlocked.Exchange(FFlushRequested, False) then
+          FlushStream(LStream);
       except
         on E: Exception do
           // A failing write (disk full, file removed underneath us) must not
@@ -615,7 +623,7 @@ begin
   if (FConfig.LogType = TLogType.Single) and (not FConfig.FullName.IsEmpty) then
   begin
     try
-      Result := TFileStream.Create(FConfig.FullName, fmOpenReadWrite or fmShareDenyWrite);
+      Result := OpenStream(FConfig.FullName, fmOpenReadWrite or fmShareDenyWrite);
     except
       Result := CreateLogFile;
     end;
@@ -629,7 +637,7 @@ begin
 
   LLastLog := LList[Length(LList) - 1];
   try
-    Result := TFileStream.Create(LLastLog, fmOpenReadWrite or fmShareDenyWrite);
+    Result := OpenStream(LLastLog, fmOpenReadWrite or fmShareDenyWrite);
   except
     Result := CreateLogFile;
   end;
@@ -640,6 +648,9 @@ begin
   // Written from EndLogging (any thread) while the writer thread reads it in
   // its sleep: Interlocked keeps the two in step.
   TInterlocked.Exchange(FSleepInterval, 2);
+  // EndLogging's contract is that the queue ends up on disk: the writer has
+  // to push whatever is still sitting in the stream buffer.
+  TInterlocked.Exchange(FFlushRequested, True);
 end;
 
 function TLogFile.TMessageWriter.CreateLogFile: TFileStream;
@@ -647,7 +658,25 @@ var
   LFileName: string;
 begin
   LFileName := FConfig.GetFileName;
-  Result := TFileStream.Create(LFileName, fmCreate or fmShareDenyWrite);
+  Result := OpenStream(LFileName, fmCreate or fmShareDenyWrite);
+end;
+
+function TLogFile.TMessageWriter.OpenStream(const AFileName: string; AMode: Word): TFileStream;
+begin
+  // Buffered mode batches the file I/O too: records accumulate in the
+  // stream's buffer and reach the disk in chunks instead of one WriteFile
+  // syscall per record. The buffer is flushed when it fills, when the file
+  // rotates, when Stop asks for it, and when the stream closes.
+  if FConfig.Buffered then
+    Result := TBufferedFileStream.Create(AFileName, AMode)
+  else
+    Result := TFileStream.Create(AFileName, AMode);
+end;
+
+procedure TLogFile.TMessageWriter.FlushStream(AStream: TFileStream);
+begin
+  if AStream is TBufferedFileStream then
+    TBufferedFileStream(AStream).FlushBuffer;
 end;
 
 function TLogFile.TMessageWriter.CreateNextLog(AStream: TFileStream): TFileStream;
