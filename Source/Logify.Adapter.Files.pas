@@ -51,6 +51,7 @@ type
     procedure SetExt(const Value: string);
     procedure SetPath(const Value: string);
     procedure SetMaxQueueSize(const Value: Integer);
+    procedure SetRotateSize(const Value: Integer);
     function BuildRotateName: string;
     function GetLogList: TArray<string>;
   public
@@ -85,7 +86,7 @@ type
     property FullName: string read FFullName write FFullName;
     property Append: Boolean read FAppend write FAppend;
     property Buffered: Boolean read FBuffered write FBuffered;
-    property RotateSize: Integer read FRotateSize write FRotateSize;
+    property RotateSize: Integer read FRotateSize write SetRotateSize;
     property RotateItems: Integer read FRotateItems write FRotateItems;
 
     /// <summary>
@@ -964,6 +965,16 @@ begin
     FMaxQueueSize := 0
   else
     FMaxQueueSize := Value;
+end;
+
+procedure TFileLogConfig.SetRotateSize(const Value: Integer);
+begin
+  // A size of 0 or less would rotate on every single record, one file per
+  // message and endless retention churn: fall back to the default instead.
+  if Value < 1 then
+    FRotateSize := DEFAULT_ROTATE_SIZE
+  else
+    FRotateSize := Value;
 end;
 
 procedure TFileLogConfig.SetPath(const Value: string);

@@ -74,6 +74,8 @@ type
     [Test]
     procedure NoFileGrowsFarBeyondTheRotateSize;
     [Test]
+    procedure AZeroRotateSizeDoesNotChurnFiles;
+    [Test]
     procedure RotationsInsideTheSameSecondDoNotOverwriteEachOther;
     [Test]
     procedure NothingIsLostAcrossRotations;
@@ -112,6 +114,8 @@ type
     procedure ASingleConfigurationIsFullyInitialized;
     [Test]
     procedure ARotateConfigurationIsFullyInitialized;
+    [Test]
+    procedure ARotateSizeOfZeroFallsBackToTheDefault;
   end;
 
 implementation
@@ -414,6 +418,20 @@ begin
   end;
 end;
 
+procedure TFileAdapterTests.AZeroRotateSizeDoesNotChurnFiles;
+var
+  LIndex: Integer;
+begin
+  // A RotateSize of 0 used to rotate on every record: one file per message
+  NewRotatingAdapter(0, 500);
+  for LIndex := 1 to 50 do
+    FAdapter.WriteLog('', 'a line of a reasonable length', nil, TLogLevel.Info);
+  Release;
+
+  Assert.AreEqual(1, Length(LogFiles),
+    'a RotateSize of 0 has to use the default, not create a file per record');
+end;
+
 procedure TFileAdapterTests.RotationsInsideTheSameSecondDoNotOverwriteEachOther;
 var
   LIndex: Integer;
@@ -702,6 +720,23 @@ begin
   Assert.AreEqual(Ord(TLogType.Rotate), Ord(LConfig.LogType));
   Assert.AreEqual(10, LConfig.RotateItems);
   Assert.IsTrue(LConfig.RotateSize > 0);
+end;
+
+procedure TFileAdapterTests.ARotateSizeOfZeroFallsBackToTheDefault;
+var
+  LConfig: TFileLogConfig;
+begin
+  LConfig := TFileLogConfig.NewRotate(TLogLevel.Info);
+
+  // A size of 0 or less would rotate on every record; it has to fall back to
+  // the default (10 MB), the same as never setting it
+  LConfig.RotateSize := 0;
+  Assert.AreEqual(10485760, LConfig.RotateSize,
+    'RotateSize 0 has to fall back to the default');
+
+  LConfig.RotateSize := -5;
+  Assert.AreEqual(10485760, LConfig.RotateSize,
+    'a negative RotateSize has to fall back to the default');
 end;
 
 initialization
