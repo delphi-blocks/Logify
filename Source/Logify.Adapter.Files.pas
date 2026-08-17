@@ -356,7 +356,11 @@ begin
   if FStarted then
     Exit;
 
-  FWriter.Start;
+  // The writer thread can only be started once: TThread.Start raises on a
+  // second call, so a retry after a failed or timed-out startup has to leave
+  // the already-started thread alone and re-check its outcome instead.
+  if not FWriter.Started then
+    FWriter.Start;
 
   // Bounded, and driven by an event: a writer that cannot open its file used
   // to leave this spinning forever, which froze the first call to log.
