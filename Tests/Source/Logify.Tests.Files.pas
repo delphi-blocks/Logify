@@ -20,6 +20,7 @@ interface
 
 uses
   System.SysUtils, System.Classes, System.IOUtils, System.Diagnostics,
+  System.Threading,
   DUnitX.TestFramework,
   Logify,
   Logify.Adapter.Files;
@@ -77,6 +78,8 @@ type
     procedure AFailedWriterReportsWhyAndDropsMessages;
     [Test]
     procedure RetryingAStartAfterFailureDoesNotRaise;
+    [Test]
+    procedure LastErrorIsSafeToPollWhileRetrying;
 
     // Append + FullName: the file to continue is the one the config names,
     // not whatever the pattern happens to find
@@ -384,6 +387,42 @@ begin
   Assert.IsNotEmpty(LFiles.LastError, 'the reason has to stay reachable');
   Assert.AreEqual(0, LFiles.GetMessagesToWrite,
     'messages must still be dropped, not queued for a dead writer');
+end;
+
+procedure TFileAdapterTests.LastErrorIsSafeToPollWhileRetrying;
+var
+  LFiles: TLogifyAdapterFiles;
+begin
+  // A directory sitting exactly where the log file wants to be
+  TDirectory.CreateDirectory(FDir);
+  TDirectory.CreateDirectory(TPath.Combine(FDir, LOG_NAME + '.log'));
+
+  NewAdapter(True);
+  LFiles := FAdapter as TObject as TLogifyAdapterFiles;
+  FAdapter.WriteLog('', 'into the void', nil, TLogLevel.Info);
+  Assert.IsFalse(LFiles.IsStarted, 'the writer cannot have started');
+
+  // Half the workers poll the error state while the other half retry the
+  // failed start: LastError is written and read from different threads at
+  // once, so it has to be guarded (a plain string field would race on the
+  // refcount).
+  Assert.WillNotRaiseAny(
+    procedure
+    begin
+      TParallel.For(1, 8,
+        procedure(AIndex: Integer)
+        var
+          LIndex: Integer;
+        begin
+          for LIndex := 1 to 200 do
+            if (AIndex and 1) = 0 then
+              LFiles.LastError
+            else
+              LFiles.InitializeLogger;
+        end);
+    end);
+
+  Assert.IsNotEmpty(LFiles.LastError, 'the failure has to stay visible');
 end;
 
 procedure TFileAdapterTests.AppendContinuesTheFullNameFileAcrossRestarts;

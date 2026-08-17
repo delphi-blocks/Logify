@@ -157,6 +157,9 @@ type
       FFailed: Boolean;
       FLastError: string;
 
+      procedure SetError(const AError: string);
+      function GetLastError: string;
+
       function RecoverLastLog: TFileStream;
       function CreateLogFile: TFileStream;
       function CreateNextLog(AStream: TFileStream): TFileStream;
@@ -179,7 +182,7 @@ type
       function WaitForStartup(ATimeout: Cardinal): Boolean;
 
       property Failed: Boolean read FFailed;
-      property LastError: string read FLastError;
+      property LastError: string read GetLastError;
     end;
 
     /// <summary>
@@ -212,6 +215,9 @@ type
     FQueue: TMessageQueue;
     FWriter: TMessageWriter;
     FRotateTimer: TRotateTimer;
+    procedure SetLastError(const AError: string);
+    function GetLastError: string;
+    function GetStarted: Boolean;
     function GetMessagesToWrite: Integer;
   public
     constructor Create(const AConfig: TFileLogConfig);
@@ -229,8 +235,8 @@ type
     ///   then drops messages instead of queueing them for a thread that will
     ///   never consume them.
     /// </summary>
-    property Started: Boolean read FStarted;
-    property LastError: string read FLastError;
+    property Started: Boolean read GetStarted;
+    property LastError: string read GetLastError;
   end;
 
   // ***********
@@ -334,11 +340,42 @@ begin
   inherited;
 end;
 
+procedure TLogFile.SetLastError(const AError: string);
+begin
+  // LastError is polled from other threads (through the adapter) while a
+  // retry may be writing it: a plain assignment would race on the string's
+  // refcount.
+  TMonitor.Enter(Self);
+  try
+    FLastError := AError;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
+function TLogFile.GetLastError: string;
+begin
+  TMonitor.Enter(Self);
+  try
+    Result := FLastError;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
+function TLogFile.GetStarted: Boolean;
+begin
+  // FStarted is written by StartLogging once the startup event has fired and
+  // read on every log call from every thread; an Interlocked read keeps the
+  // flag coherent without a lock on the hot path.
+  Result := TInterlocked.CompareExchange(FStarted, False, False);
+end;
+
 procedure TLogFile.EndLogging;
 var
   LWatch: TStopwatch;
 begin
-  if not FStarted then
+  if not GetStarted then
     Exit;
 
   // Ask the writer to poll faster, then give it a bounded window to put the
@@ -353,7 +390,7 @@ end;
 
 procedure TLogFile.StartLogging;
 begin
-  if FStarted then
+  if GetStarted then
     Exit;
 
   // The writer thread can only be started once: TThread.Start raises on a
@@ -366,27 +403,27 @@ begin
   // to leave this spinning forever, which froze the first call to log.
   if not FWriter.WaitForStartup(STARTUP_TIMEOUT) then
   begin
-    FLastError := Format(SWriterDidNotStart, [STARTUP_TIMEOUT]);
+    SetLastError(Format(SWriterDidNotStart, [STARTUP_TIMEOUT]));
     Exit;
   end;
 
   if FWriter.Failed then
   begin
-    FLastError := FWriter.LastError;
+    SetLastError(FWriter.LastError);
     Exit;
   end;
 
   if FConfig.LogType = TLogType.Rotate then
     FRotateTimer.Start;
 
-  FStarted := True;
+  TInterlocked.Exchange(FStarted, True);
 end;
 
 procedure TLogFile.AddStr(const AString: string);
 begin
   // Nobody is consuming: queueing would only grow the queue for the lifetime
   // of the process
-  if not FStarted then
+  if not GetStarted then
     Exit;
 
   if AString.EndsWith(sLineBreak) then
@@ -504,7 +541,7 @@ begin
     begin
       // The caller is waiting: it has to be told that the file never opened,
       // otherwise it waits for a thread that is about to disappear.
-      FLastError := E.ClassName + ': ' + E.Message;
+      SetError(E.ClassName + ': ' + E.Message);
       FFailed := True;
       FReady.SetEvent;
       Exit;
@@ -524,10 +561,10 @@ begin
         on E: Exception do
           // A failing write (disk full, file removed underneath us) must not
           // kill the thread: the next pass tries again.
-          FLastError := E.ClassName + ': ' + E.Message;
+          SetError(E.ClassName + ': ' + E.Message);
       end;
 
-      Sleep(FSleepInterval);
+      Sleep(TInterlocked.CompareExchange(FSleepInterval, 0, 0));
     end;
 
     // Terminated. Whatever is still queued was accepted from the caller and
@@ -536,10 +573,32 @@ begin
       ConsumeAvailable(LStream);
     except
       on E: Exception do
-        FLastError := E.ClassName + ': ' + E.Message;
+        SetError(E.ClassName + ': ' + E.Message);
     end;
   finally
     LStream.Free;
+  end;
+end;
+
+procedure TLogFile.TMessageWriter.SetError(const AError: string);
+begin
+  // LastError is polled from other threads while the writer thread keeps
+  // failing: a plain assignment would race on the string's refcount.
+  TMonitor.Enter(Self);
+  try
+    FLastError := AError;
+  finally
+    TMonitor.Exit(Self);
+  end;
+end;
+
+function TLogFile.TMessageWriter.GetLastError: string;
+begin
+  TMonitor.Enter(Self);
+  try
+    Result := FLastError;
+  finally
+    TMonitor.Exit(Self);
   end;
 end;
 
@@ -578,7 +637,9 @@ end;
 
 procedure TLogFile.TMessageWriter.Stop;
 begin
-  FSleepInterval := 2;
+  // Written from EndLogging (any thread) while the writer thread reads it in
+  // its sleep: Interlocked keeps the two in step.
+  TInterlocked.Exchange(FSleepInterval, 2);
 end;
 
 function TLogFile.TMessageWriter.CreateLogFile: TFileStream;
