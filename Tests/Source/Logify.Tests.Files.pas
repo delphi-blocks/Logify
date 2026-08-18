@@ -34,6 +34,10 @@ type
     // queue drain has to stay fast: a full queue is drained in one pass.
     FULL_QUEUE = 100000;
     LOG_NAME = 'test';
+    // Concurrent producers: enough threads to interleave, enough messages
+    // each that a lost or torn line is not a coincidence
+    PRODUCERS = 8;
+    PER_PRODUCER = 500;
   private
     FDir: string;
     FAdapter: ILoggerAdapter;
@@ -48,6 +52,18 @@ type
     function LogFiles: TArray<string>;
     function TotalLines: Integer;
     function LinesIn(const AFile: string): Integer;
+
+    /// <summary>
+    ///   Writes PER_PRODUCER messages from each of PRODUCERS threads, tagged
+    ///   'wN-mM' so every single one can be accounted for afterwards.
+    /// </summary>
+    procedure RunProducers;
+
+    /// <summary>
+    ///   The message part of every logged line (what follows the last '| ' of
+    ///   LOG_TEMPLATE), sorted so it can be searched.
+    /// </summary>
+    function LoggedMessages: TStringList;
   public
     [Setup]
     procedure Setup;
@@ -110,6 +126,15 @@ type
     procedure AZeroLimitKeepsEverything;
     [Test]
     procedure EveryMessageSurvivesAtTheDefaultQueueLimit;
+
+    // Concurrent producers: being hammered from many threads is the whole
+    // point of a queue-and-writer-thread adapter
+    [Test]
+    procedure EveryMessageOfEveryProducerReachesTheFile;
+    [Test]
+    procedure NoLineIsTornByAConcurrentProducer;
+    [Test]
+    procedure ConcurrentProducersSurviveRotation;
 
     // Configuration
     [Test]
@@ -696,6 +721,90 @@ begin
   Release;
 
   Assert.AreEqual(MESSAGES, TotalLines);
+end;
+
+procedure TFileAdapterTests.RunProducers;
+begin
+  TParallel.For(1, PRODUCERS,
+    procedure(AProducer: Integer)
+    var
+      LMessage: Integer;
+    begin
+      for LMessage := 1 to PER_PRODUCER do
+        FAdapter.WriteLog('', Format('w%d-m%d', [AProducer, LMessage]), nil, TLogLevel.Info);
+    end);
+end;
+
+function TFileAdapterTests.LoggedMessages: TStringList;
+var
+  LFile, LLine: string;
+  LSeparator: Integer;
+begin
+  Result := TStringList.Create;
+  try
+    Result.Sorted := True;
+    Result.Duplicates := TDuplicates.dupAccept;
+
+    for LFile in LogFiles do
+      for LLine in TFile.ReadAllLines(LFile) do
+      begin
+        LSeparator := LLine.LastIndexOf('| ');
+        if LSeparator >= 0 then
+          Result.Add(LLine.Substring(LSeparator + 2));
+      end;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure TFileAdapterTests.EveryMessageOfEveryProducerReachesTheFile;
+begin
+  // Unbounded queue: anything missing here is a race, not the drop policy
+  NewAdapter(True, 0);
+  RunProducers;
+  Release;
+
+  Assert.AreEqual(PRODUCERS * PER_PRODUCER, TotalLines);
+end;
+
+procedure TFileAdapterTests.NoLineIsTornByAConcurrentProducer;
+var
+  LMessages: TStringList;
+  LProducer, LMessage: Integer;
+  LMissing: Integer;
+begin
+  NewAdapter(True, 0);
+  RunProducers;
+  Release;
+
+  // Counting lines only proves the total: this proves that each one arrived
+  // whole, with its own message, and not spliced with another thread's
+  LMessages := LoggedMessages;
+  try
+    LMissing := 0;
+    for LProducer := 1 to PRODUCERS do
+      for LMessage := 1 to PER_PRODUCER do
+        if LMessages.IndexOf(Format('w%d-m%d', [LProducer, LMessage])) < 0 then
+          Inc(LMissing);
+
+    Assert.AreEqual(0, LMissing,
+      Format('%d messages are missing or were written mangled', [LMissing]));
+  finally
+    LMessages.Free;
+  end;
+end;
+
+procedure TFileAdapterTests.ConcurrentProducersSurviveRotation;
+begin
+  // Small files, generous retention: the writer rolls over repeatedly while
+  // every producer keeps pushing, and still may not lose a line
+  NewRotatingAdapter(2000, 1000);
+  RunProducers;
+  Release;
+
+  Assert.IsTrue(Length(LogFiles) > 1, 'nothing rotated, so nothing was proved');
+  Assert.AreEqual(PRODUCERS * PER_PRODUCER, TotalLines);
 end;
 
 procedure TFileAdapterTests.EveryMessageSurvivesAtTheDefaultQueueLimit;

@@ -30,7 +30,19 @@ type
       ('TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'OFF');
   public
     function ToString: string;
-    procedure FromString(AValue: string);
+
+    /// <summary>
+    ///   Parses a level name (case insensitive), raising ELogifyException when
+    ///   the value is not one of them. Use TryFromString to parse a value that
+    ///   comes from a configuration file or from the command line.
+    /// </summary>
+    procedure FromString(const AValue: string);
+
+    /// <summary>
+    ///   Parses a level name (case insensitive). Leaves the level untouched
+    ///   and returns False when the value is not a valid level name.
+    /// </summary>
+    function TryFromString(const AValue: string): Boolean;
   end;
 
   /// <summary>
@@ -177,11 +189,30 @@ type
     ///   Dropped whenever the registry changes.
     /// </summary>
     FCategoryCache: TDictionary<string, TArray<ILoggerAdapter>>;
+
+    /// <summary>
+    ///   One gate object per adapter name, used to serialize the creation of
+    ///   that single adapter while FLock is *not* held. Gates outlive the
+    ///   adapters they guard (a thread may still be waiting on one), so they
+    ///   are only freed with the registry.
+    /// </summary>
+    FCreationGates: TObjectDictionary<string, TObject>;
+
+    /// <summary>
+    ///   Bumped by every change to the registry. An adapter list built outside
+    ///   FLock is only worth caching if the registry did not move meanwhile.
+    /// </summary>
+    FVersion: Integer;
     class function GetInstance: TLoggerAdapterRegistry; static;
 
-    // The callers of these two must already hold FLock
-    function GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
+    // Must be called while holding FLock
+    procedure InvalidateCache;
     procedure InternalUnregisterFactory(const AName: string);
+
+    // Must be called *without* holding FLock: it takes it as needed and
+    // leaves it while the adapter is being built
+    function GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
+    function AcquireCreationGate(const AName: string): TObject;
   public
     class constructor Create;
     class destructor Destroy;
@@ -275,6 +306,9 @@ uses
 
 resourcestring
   SLoggerFactoryNotFound = 'LoggerFactory [%s] not found';
+  SLoggerFactoryDuplicate = 'LoggerFactory [%s] is already registered (in category [%s]): ' +
+    'every factory needs a unique name';
+  SLogLevelNotValid = '[%s] is not a valid log level';
   SCausedBy = '--- Caused by %s: %s';
 
 function GetFullExceptionInfo(E: Exception): string;
@@ -411,10 +445,12 @@ begin
   FRegistry := TDictionary<string, FactoryInfo>.Create;
   FLoggerAdapters := TDictionary<string, LoggerAdapterInfo>.Create;
   FCategoryCache := TDictionary<string, TArray<ILoggerAdapter>>.Create;
+  FCreationGates := TObjectDictionary<string, TObject>.Create([doOwnsValues]);
 end;
 
 destructor TLoggerAdapterRegistry.Destroy;
 begin
+  FCreationGates.Free;
   FCategoryCache.Free;
   FLoggerAdapters.Free;
   FRegistry.Free;
@@ -482,19 +518,54 @@ end;
 function TLoggerAdapterRegistry.GetLoggerAdapters(const ACategory: string): TArray<ILoggerAdapter>;
 var
   LReg: TPair<string, FactoryInfo>;
+  LNames: TArray<string>;
+  LAdapter: ILoggerAdapter;
+  LVersion, LCount, LIndex: Integer;
 begin
   FLock.Acquire;
   try
     if FCategoryCache.TryGetValue(ACategory, Result) then
       Exit;
 
-    Result := [];
+    // Only the names are collected under the lock: building the adapters is what may take a while
+    LVersion := FVersion;
+    SetLength(LNames, FRegistry.Count);
+    LCount := 0;
     for LReg in FRegistry do
       if LReg.Value.Category = ACategory then
-        Result := Result + [GetOrCreateLoggerAdapter(LReg.Key)];
+      begin
+        LNames[LCount] := LReg.Key;
+        Inc(LCount);
+      end;
+    SetLength(LNames, LCount);
+  finally
+    FLock.Release;
+  end;
 
-    // An empty category is cached too: "nothing registered" is the hot path
-    FCategoryCache.Add(ACategory, Result);
+  // Adapters are created outside FLock: some of them (files) start a thread
+  // and wait for it, and a slow disk must not stall every logging thread in
+  // the process. GetOrCreateLoggerAdapter still guarantees a single instance.
+  SetLength(Result, Length(LNames));
+  LCount := 0;
+  for LIndex := 0 to High(LNames) do
+  begin
+    LAdapter := GetOrCreateLoggerAdapter(LNames[LIndex]);
+    // nil when the factory was unregistered while we were building the list
+    if Assigned(LAdapter) then
+    begin
+      Result[LCount] := LAdapter;
+      Inc(LCount);
+    end;
+  end;
+  SetLength(Result, LCount);
+
+  FLock.Acquire;
+  try
+    // An empty category is cached too: "nothing registered" is the hot path.
+    // A registry that changed while we were building leaves the list uncached
+    // (it may already be stale): the next call rebuilds it.
+    if LVersion = FVersion then
+      FCategoryCache.AddOrSetValue(ACategory, Result);
   finally
     FLock.Release;
   end;
@@ -502,22 +573,78 @@ begin
   // even if another thread invalidates the cache in the meantime.
 end;
 
+function TLoggerAdapterRegistry.AcquireCreationGate(const AName: string): TObject;
+begin
+  FLock.Acquire;
+  try
+    if not FCreationGates.TryGetValue(AName, Result) then
+    begin
+      Result := TObject.Create;
+      FCreationGates.Add(AName, Result);
+    end;
+  finally
+    FLock.Release;
+  end;
+end;
+
 function TLoggerAdapterRegistry.GetOrCreateLoggerAdapter(const AName: string): ILoggerAdapter;
 var
   LLoggerAdapterInfo: LoggerAdapterInfo;
-  LFactoryInfo: FactoryInfo;
+  LFactoryInfo, LCurrentInfo: FactoryInfo;
+  LGate: TObject;
 begin
   Result := nil;
-  if FLoggerAdapters.TryGetValue(AName, LLoggerAdapterInfo) then
-    Exit(LLoggerAdapterInfo.LoggerAdapter);
 
-  if FRegistry.TryGetValue(AName, LFactoryInfo) then
-  begin
-    // Built while holding the lock: an adapter must never be created twice,
-    // and some of them (files) own threads and handles.
-    Result := LFactoryInfo.Factory.CreateLoggerAdapter;
-    FLoggerAdapters.Add(AName, LoggerAdapterInfo.New(LFactoryInfo.Category, Result));
+  FLock.Acquire;
+  try
+    if FLoggerAdapters.TryGetValue(AName, LLoggerAdapterInfo) then
+      Exit(LLoggerAdapterInfo.LoggerAdapter);
+    if not FRegistry.ContainsKey(AName) then
+      Exit(nil);
+  finally
+    FLock.Release;
   end;
+
+  // Everything below runs without FLock, so only the threads racing for this
+  // very adapter wait here: an adapter must never be created twice, and some
+  // of them (files) own threads and handles.
+  LGate := AcquireCreationGate(AName);
+  TMonitor.Enter(LGate);
+  try
+    FLock.Acquire;
+    try
+      // The winner of the race got here first and already published it
+      if FLoggerAdapters.TryGetValue(AName, LLoggerAdapterInfo) then
+        Exit(LLoggerAdapterInfo.LoggerAdapter);
+      // ...or the factory went away while we were waiting on the gate
+      if not FRegistry.TryGetValue(AName, LFactoryInfo) then
+        Exit(nil);
+    finally
+      FLock.Release;
+    end;
+
+    Result := LFactoryInfo.Factory.CreateLoggerAdapter;
+
+    FLock.Acquire;
+    try
+      // Unregistered (or re-registered under another factory) while it was
+      // being built: the adapter is handed back to this caller but never
+      // cached under a name that no longer belongs to it
+      if FRegistry.TryGetValue(AName, LCurrentInfo) and (LCurrentInfo.Factory = LFactoryInfo.Factory) then
+        FLoggerAdapters.AddOrSetValue(AName, LoggerAdapterInfo.New(LCurrentInfo.Category, Result));
+    finally
+      FLock.Release;
+    end;
+  finally
+    TMonitor.Exit(LGate);
+  end;
+end;
+
+procedure TLoggerAdapterRegistry.InvalidateCache;
+begin
+  FCategoryCache.Clear;
+  // Tells the adapter lists being built right now that they are stale
+  Inc(FVersion);
 end;
 
 procedure TLoggerAdapterRegistry.InternalUnregisterFactory(const AName: string);
@@ -544,11 +671,21 @@ begin
 end;
 
 procedure TLoggerAdapterRegistry.RegisterFactory(const ACategory: string; AFactory: ILoggerAdapterFactory);
+var
+  LName: string;
+  LExisting: FactoryInfo;
 begin
+  LName := AFactory.GetUniqueName;
   FLock.Acquire;
   try
-    FRegistry.Add(AFactory.GetUniqueName, FactoryInfo.New(ACategory, AFactory));
-    FCategoryCache.Clear;
+    // Two factories of the same class registered without distinct names is the
+    // usual cause: say so, instead of letting TDictionary raise a bare
+    // "Duplicates not allowed" EListError
+    if FRegistry.TryGetValue(LName, LExisting) then
+      raise ELogifyException.CreateFmt(SLoggerFactoryDuplicate, [LName, LExisting.Category]);
+
+    FRegistry.Add(LName, FactoryInfo.New(ACategory, AFactory));
+    InvalidateCache;
   finally
     FLock.Release;
   end;
@@ -559,7 +696,7 @@ begin
   FLock.Acquire;
   try
     InternalUnregisterFactory(AName);
-    FCategoryCache.Clear;
+    InvalidateCache;
   finally
     FLock.Release;
   end;
@@ -576,19 +713,25 @@ var
   LReg: TPair<string, FactoryInfo>;
   LNames: TArray<string>;
   LName: string;
+  LCount: Integer;
 begin
   FLock.Acquire;
   try
     // Collected first: the dictionary cannot be modified while enumerating it
-    LNames := [];
+    SetLength(LNames, FRegistry.Count);
+    LCount := 0;
     for LReg in FRegistry do
       if LReg.Value.Category = ACategory then
-        LNames := LNames + [LReg.Key];
+      begin
+        LNames[LCount] := LReg.Key;
+        Inc(LCount);
+      end;
+    SetLength(LNames, LCount);
 
     for LName in LNames do
       InternalUnregisterFactory(LName);
 
-    FCategoryCache.Clear;
+    InvalidateCache;
   finally
     FLock.Release;
   end;
@@ -598,7 +741,7 @@ procedure TLoggerAdapterRegistry.Clear;
 begin
   FLock.Acquire;
   try
-    FCategoryCache.Clear;
+    InvalidateCache;
     FLoggerAdapters.Clear;
     FRegistry.Clear;
   finally
@@ -866,9 +1009,23 @@ end;
 
 { TLogLevelHelper }
 
-procedure TLogLevelHelper.FromString(AValue: string);
+procedure TLogLevelHelper.FromString(const AValue: string);
 begin
-  Self := TLogLevel(GetEnumValue(TypeInfo(TLogLevel), AValue));
+  if not TryFromString(AValue) then
+    raise ELogifyException.CreateFmt(SLogLevelNotValid, [AValue]);
+end;
+
+function TLogLevelHelper.TryFromString(const AValue: string): Boolean;
+var
+  LValue: Integer;
+begin
+  // GetEnumValue answers -1 for anything it does not know: casting that to
+  // TLogLevel would leave a level that later indexes LOG_LEVEL_STR out of
+  // bounds, so an unknown string must never reach Self.
+  LValue := GetEnumValue(TypeInfo(TLogLevel), AValue);
+  Result := (LValue >= Ord(Low(TLogLevel))) and (LValue <= Ord(High(TLogLevel)));
+  if Result then
+    Self := TLogLevel(LValue);
 end;
 
 function TLogLevelHelper.ToString: string;

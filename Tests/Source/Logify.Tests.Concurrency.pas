@@ -13,7 +13,7 @@ unit Logify.Tests.Concurrency;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.SyncObjs, System.Threading,
+  System.SysUtils, System.Classes, System.SyncObjs, System.Threading, System.Diagnostics,
   DUnitX.TestFramework,
   Logify;
 
@@ -45,6 +45,21 @@ type
   end;
 
   /// <summary>
+  ///   An adapter that takes its time to build, like the files one waiting for
+  ///   its writer thread. Signals AEntered as soon as construction starts, so
+  ///   a test can measure what happens while it is under way.
+  /// </summary>
+  TSlowAdapterFactory = class(TLoggerAdapterFactory)
+  private
+    FDelay: Cardinal;
+    FEntered: TEvent;
+  public
+    class function CreateAdapterFactory(const AName: string; ADelay: Cardinal;
+      AEntered: TEvent): TSlowAdapterFactory;
+    function CreateLoggerAdapter: ILoggerAdapter; override;
+  end;
+
+  /// <summary>
   ///   The registry is a process-wide singleton reached from every logging
   ///   call, so its dictionaries have to survive concurrent use.
   /// </summary>
@@ -53,6 +68,7 @@ type
   private const
     WORKERS = 8;
     ITERATIONS = 250;
+    SLOW_ADAPTER_MS = 600;
   public
     [Setup]
     procedure Setup;
@@ -69,6 +85,12 @@ type
     procedure ClearingWhileLoggingDoesNotCorruptTheRegistry;
     [Test]
     procedure ConcurrentCallsToLoggerShareOneInstance;
+    [Test]
+    procedure BuildingASlowAdapterDoesNotBlockAnotherCategory;
+    [Test]
+    procedure AnAdapterBuiltAfterItsFactoryIsGoneIsNotCached;
+    [Test]
+    procedure AListBuiltWhileTheRegistryChangesIsNotCached;
   end;
 
 implementation
@@ -122,6 +144,24 @@ function TCountingAdapterFactory.CreateLoggerAdapter: ILoggerAdapter;
 begin
   // Widens the window in which a second thread could build a rival adapter
   Sleep(5);
+  Result := TCountingAdapter.Create;
+end;
+
+{ TSlowAdapterFactory }
+
+class function TSlowAdapterFactory.CreateAdapterFactory(const AName: string;
+  ADelay: Cardinal; AEntered: TEvent): TSlowAdapterFactory;
+begin
+  Result := TSlowAdapterFactory.Create();
+  Result.Name := AName;
+  Result.FDelay := ADelay;
+  Result.FEntered := AEntered;
+end;
+
+function TSlowAdapterFactory.CreateLoggerAdapter: ILoggerAdapter;
+begin
+  FEntered.SetEvent;
+  Sleep(FDelay);
   Result := TCountingAdapter.Create;
 end;
 
@@ -250,6 +290,133 @@ begin
     end);
 
   Assert.AreEqual(0, LMismatches);
+end;
+
+procedure TRegistryConcurrencyTests.BuildingASlowAdapterDoesNotBlockAnotherCategory;
+var
+  LEntered: TEvent;
+  LSlowCategory, LFastCategory: string;
+  LSlowTask: ITask;
+  LWatch: TStopwatch;
+  LElapsed: Int64;
+begin
+  // Adapters used to be built while holding the registry lock, so the first
+  // log call of a slow adapter (the files one waits up to 5 s for its writer)
+  // stalled every other logging thread in the process.
+  LSlowCategory := UniqueName;
+  LFastCategory := UniqueName;
+
+  LEntered := TEvent.Create(nil, True, False, '');
+  try
+    TLoggerAdapterRegistry.Instance.RegisterFactory(LSlowCategory,
+      TSlowAdapterFactory.CreateAdapterFactory(UniqueName, SLOW_ADAPTER_MS, LEntered));
+    TLoggerAdapterRegistry.Instance.RegisterFactory(LFastCategory,
+      TCountingAdapterFactory.CreateAdapterFactory(UniqueName));
+
+    LSlowTask := TTask.Run(
+      procedure
+      begin
+        TLoggerManager.GetCategoryLogger(LSlowCategory).LogError('cold start of a slow adapter');
+      end);
+    try
+      Assert.IsTrue(LEntered.WaitFor(5000) = TWaitResult.wrSignaled,
+        'The slow adapter never started building');
+
+      // Timed while the slow constructor is provably still running
+      LWatch := TStopwatch.StartNew;
+      TLoggerManager.GetCategoryLogger(LFastCategory).LogError('must not wait for the other category');
+      LElapsed := LWatch.ElapsedMilliseconds;
+    finally
+      LSlowTask.Wait;
+    end;
+
+    Assert.IsTrue(LElapsed < SLOW_ADAPTER_MS div 2,
+      Format('Logging waited %d ms for an unrelated adapter to be built', [LElapsed]));
+  finally
+    LEntered.Free;
+  end;
+end;
+
+procedure TRegistryConcurrencyTests.AnAdapterBuiltAfterItsFactoryIsGoneIsNotCached;
+var
+  LEntered: TEvent;
+  LCategory, LName: string;
+  LSlowTask: ITask;
+begin
+  // Adapters are built outside the registry lock, so the registry can move
+  // under a construction that is already under way: whatever comes out of it
+  // must not be filed under a name that no longer belongs to that factory.
+  LCategory := UniqueName;
+  LName := UniqueName;
+
+  LEntered := TEvent.Create(nil, True, False, '');
+  try
+    TLoggerAdapterRegistry.Instance.RegisterFactory(LCategory,
+      TSlowAdapterFactory.CreateAdapterFactory(LName, SLOW_ADAPTER_MS, LEntered));
+
+    LSlowTask := TTask.Run(
+      procedure
+      begin
+        TLoggerManager.GetCategoryLogger(LCategory).LogError('built while being unregistered');
+      end);
+    try
+      Assert.IsTrue(LEntered.WaitFor(5000) = TWaitResult.wrSignaled,
+        'The slow adapter never started building');
+
+      // The factory goes away while its adapter is still being constructed
+      TLoggerAdapterRegistry.Instance.UnregisterFactory(LName);
+    finally
+      LSlowTask.Wait;
+    end;
+
+    Assert.IsNull(TLoggerAdapterRegistry.Instance.FindLoggerAdapter(LName),
+      'the adapter of an unregistered factory was published into the cache');
+  finally
+    LEntered.Free;
+  end;
+end;
+
+procedure TRegistryConcurrencyTests.AListBuiltWhileTheRegistryChangesIsNotCached;
+var
+  LEntered: TEvent;
+  LCategory: string;
+  LSlowTask: ITask;
+  LBefore: Integer;
+begin
+  // Same window, seen from the category cache: a list assembled outside the
+  // lock is stale if a factory joined the category meanwhile, and caching it
+  // would hide that factory from every later call.
+  LCategory := UniqueName;
+
+  LEntered := TEvent.Create(nil, True, False, '');
+  try
+    TLoggerAdapterRegistry.Instance.RegisterFactory(LCategory,
+      TSlowAdapterFactory.CreateAdapterFactory(UniqueName, SLOW_ADAPTER_MS, LEntered));
+
+    LSlowTask := TTask.Run(
+      procedure
+      begin
+        TLoggerManager.GetCategoryLogger(LCategory).LogError('the first message of the category');
+      end);
+    try
+      Assert.IsTrue(LEntered.WaitFor(5000) = TWaitResult.wrSignaled,
+        'The slow adapter never started building');
+
+      // A second adapter joins the category while the first list is being built
+      TLoggerAdapterRegistry.Instance.RegisterFactory(LCategory,
+        TCountingAdapterFactory.CreateAdapterFactory(UniqueName));
+    finally
+      LSlowTask.Wait;
+    end;
+
+    LBefore := TCountingAdapter.Written;
+    TLoggerManager.GetCategoryLogger(LCategory).LogError('both adapters must see this');
+
+    Assert.AreEqual(2, TCountingAdapter.Written - LBefore,
+      'a stale list was cached: the factory registered during the build is missing');
+  finally
+    LEntered.Free;
+  end;
 end;
 
 initialization

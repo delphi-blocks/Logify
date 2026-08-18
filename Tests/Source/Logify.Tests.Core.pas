@@ -31,6 +31,12 @@ type
     procedure LevelsAreOrderedFromTraceToOff;
     [Test]
     procedure FromStringRoundTripsToString;
+    [Test]
+    procedure FromStringRaisesOnAnUnknownValue;
+    [Test]
+    procedure TryFromStringRejectsAnUnknownValueAndKeepsTheLevel;
+    [Test]
+    procedure TryFromStringIsCaseInsensitive;
   end;
 
   /// <summary>
@@ -130,6 +136,8 @@ type
     [Test]
     procedure RegisteringTheSameNameTwiceRaises;
     [Test]
+    procedure TheDuplicateNameIsReportedInTheMessage;
+    [Test]
     procedure UnregisterFactoryRemovesIt;
     [Test]
     procedure UnregisterFactoryIgnoresAnUnknownName;
@@ -143,6 +151,67 @@ type
     procedure UnregisterCategoryLeavesTheOtherCategoriesAlone;
     [Test]
     procedure ClearEmptiesTheRegistry;
+  end;
+
+  /// <summary>
+  ///   Raised by the adapter (or its factory) that the failure tests register
+  /// </summary>
+  EAdapterFailure = class(Exception);
+
+  /// <summary>
+  ///   A backend that fails the way a real one can: either the factory cannot
+  ///   build the adapter, or the write itself blows up.
+  /// </summary>
+  TThrowingAdapter = class(TInterfacedObject, ILoggerAdapter)
+  private class var
+    FInstances: Integer;
+  public
+    constructor Create;
+
+    { ILoggerAdapter }
+    procedure WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+    procedure WriteRawLine(const AMsg: string; ALevel: TLogLevel);
+
+    class function Instances: Integer;
+  end;
+
+  TThrowingAdapterFactory = class(TLoggerAdapterFactory)
+  private class var
+    FAttempts: Integer;
+  private
+    FFailInFactory: Boolean;
+  public
+    class function CreateAdapterFactory(const AName: string; AFailInFactory: Boolean): TThrowingAdapterFactory;
+    function CreateLoggerAdapter: ILoggerAdapter; override;
+
+    class procedure Reset;
+    class function Attempts: Integer;
+  end;
+
+  /// <summary>
+  ///   What a broken backend does to the caller. These tests pin down the
+  ///   *current* behaviour: neither the fan-out in TMultiLogger.Log nor the
+  ///   adapter creation in the registry catches anything, so a failing backend
+  ///   surfaces at the Logger.LogXxx call site, inside application code.
+  /// </summary>
+  [TestFixture]
+  TAdapterFailureTests = class
+  public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
+    [Test]
+    procedure AFactoryThatRaisesReachesTheLoggingCall;
+    [Test]
+    procedure AFactoryThatRaisesIsRetriedOnEveryCall;
+    [Test]
+    procedure AnAdapterThatRaisesReachesTheLoggingCall;
+    [Test]
+    procedure AnAdapterThatRaisesIsStillBuiltOnlyOnce;
+    [Test]
+    procedure ABrokenCategoryLeavesTheOtherCategoriesWorking;
   end;
 
 function UniqueName: string;
@@ -194,6 +263,40 @@ begin
     Assert.AreEqual(Ord(LLevel), Ord(LParsed),
       'Round-trip failed for ' + LLevel.ToString);
   end;
+end;
+
+procedure TLogLevelTests.FromStringRaisesOnAnUnknownValue;
+begin
+  Assert.WillRaise(
+    procedure
+    var
+      LLevel: TLogLevel;
+    begin
+      LLevel.FromString('VERBOSE');
+    end,
+    ELogifyException);
+end;
+
+procedure TLogLevelTests.TryFromStringRejectsAnUnknownValueAndKeepsTheLevel;
+var
+  LLevel: TLogLevel;
+begin
+  LLevel := TLogLevel.Warning;
+
+  // An unknown name used to become TLogLevel(-1), which then crashed ToString
+  Assert.IsFalse(LLevel.TryFromString('VERBOSE'));
+  Assert.IsFalse(LLevel.TryFromString(''));
+  Assert.AreEqual(Ord(TLogLevel.Warning), Ord(LLevel), 'The level was overwritten');
+  Assert.AreEqual('WARNING', LLevel.ToString);
+end;
+
+procedure TLogLevelTests.TryFromStringIsCaseInsensitive;
+var
+  LLevel: TLogLevel;
+begin
+  LLevel := TLogLevel.Off;
+  Assert.IsTrue(LLevel.TryFromString('warning'));
+  Assert.AreEqual(Ord(TLogLevel.Warning), Ord(LLevel));
 end;
 
 { TLoggerTests }
@@ -467,11 +570,33 @@ begin
 
   // Documents current behaviour: the registry keys on the factory unique name,
   // so a clashing name is rejected even in a different category
-  Assert.WillRaiseAny(
+  Assert.WillRaise(
     procedure
     begin
       TLoggerAdapterRegistry.Instance.RegisterFactory(UniqueName, NewFactory(LName));
-    end);
+    end,
+    ELogifyException);
+end;
+
+procedure TRegistryTests.TheDuplicateNameIsReportedInTheMessage;
+var
+  LName: string;
+  LMessage: string;
+begin
+  LName := UniqueName;
+  TLoggerAdapterRegistry.Instance.RegisterFactory(NewFactory(LName));
+
+  // The bare EListError from TDictionary.Add said nothing about which factory
+  // clashed, which is the only thing the caller needs to know
+  LMessage := '';
+  try
+    TLoggerAdapterRegistry.Instance.RegisterFactory(NewFactory(LName));
+  except
+    on E: ELogifyException do
+      LMessage := E.Message;
+  end;
+
+  Assert.Contains(LMessage, LName);
 end;
 
 procedure TRegistryTests.UnregisterFactoryRemovesIt;
@@ -579,11 +704,172 @@ begin
   Assert.AreEqual(0, Length(TLoggerAdapterRegistry.Instance.GetLoggerAdapters(LCategory)));
 end;
 
+{ TThrowingAdapter }
+
+constructor TThrowingAdapter.Create;
+begin
+  inherited Create;
+  Inc(FInstances);
+end;
+
+procedure TThrowingAdapter.WriteLog(const AClassName, AMsg: string; AException: Exception; ALevel: TLogLevel);
+begin
+  raise EAdapterFailure.Create('the backend refused the message');
+end;
+
+procedure TThrowingAdapter.WriteRawLine(const AMsg: string; ALevel: TLogLevel);
+begin
+  raise EAdapterFailure.Create('the backend refused the raw line');
+end;
+
+class function TThrowingAdapter.Instances: Integer;
+begin
+  Result := FInstances;
+end;
+
+{ TThrowingAdapterFactory }
+
+class function TThrowingAdapterFactory.CreateAdapterFactory(const AName: string;
+  AFailInFactory: Boolean): TThrowingAdapterFactory;
+begin
+  Result := TThrowingAdapterFactory.Create();
+  Result.Name := AName;
+  Result.FFailInFactory := AFailInFactory;
+end;
+
+function TThrowingAdapterFactory.CreateLoggerAdapter: ILoggerAdapter;
+begin
+  Inc(FAttempts);
+  if FFailInFactory then
+    raise EAdapterFailure.Create('the backend could not be opened');
+
+  Result := TThrowingAdapter.Create;
+end;
+
+class procedure TThrowingAdapterFactory.Reset;
+begin
+  FAttempts := 0;
+  TThrowingAdapter.FInstances := 0;
+end;
+
+class function TThrowingAdapterFactory.Attempts: Integer;
+begin
+  Result := FAttempts;
+end;
+
+{ TAdapterFailureTests }
+
+procedure TAdapterFailureTests.Setup;
+begin
+  TLoggerAdapterRegistry.Instance.Clear;
+  TThrowingAdapterFactory.Reset;
+end;
+
+procedure TAdapterFailureTests.TearDown;
+begin
+  TLoggerAdapterRegistry.Instance.Clear;
+end;
+
+procedure TAdapterFailureTests.AFactoryThatRaisesReachesTheLoggingCall;
+begin
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TThrowingAdapterFactory.CreateAdapterFactory(UniqueName, True));
+
+  // Current behaviour: a backend that cannot be opened takes the application
+  // down with it, at the log statement
+  Assert.WillRaise(
+    procedure
+    begin
+      Logger.LogInfo('the adapter cannot be built');
+    end,
+    EAdapterFailure);
+end;
+
+procedure TAdapterFailureTests.AFactoryThatRaisesIsRetriedOnEveryCall;
+var
+  LIndex: Integer;
+begin
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TThrowingAdapterFactory.CreateAdapterFactory(UniqueName, True));
+
+  for LIndex := 1 to 3 do
+    try
+      Logger.LogInfo('the adapter cannot be built');
+    except
+      on EAdapterFailure do ;
+    end;
+
+  // A failed creation is not remembered, so the cost is paid again every time
+  Assert.AreEqual(3, TThrowingAdapterFactory.Attempts);
+end;
+
+procedure TAdapterFailureTests.AnAdapterThatRaisesReachesTheLoggingCall;
+begin
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TThrowingAdapterFactory.CreateAdapterFactory(UniqueName, False));
+
+  Assert.WillRaise(
+    procedure
+    begin
+      Logger.LogInfo('the backend will refuse this');
+    end,
+    EAdapterFailure);
+end;
+
+procedure TAdapterFailureTests.AnAdapterThatRaisesIsStillBuiltOnlyOnce;
+var
+  LIndex: Integer;
+begin
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TThrowingAdapterFactory.CreateAdapterFactory(UniqueName, False));
+
+  for LIndex := 1 to 3 do
+    try
+      Logger.LogInfo('the backend will refuse this');
+    except
+      on EAdapterFailure do ;
+    end;
+
+  // Only the write fails: the adapter itself was built and cached normally
+  Assert.AreEqual(1, TThrowingAdapterFactory.Attempts);
+  Assert.AreEqual(1, TThrowingAdapter.Instances);
+end;
+
+procedure TAdapterFailureTests.ABrokenCategoryLeavesTheOtherCategoriesWorking;
+var
+  LHealthy: string;
+  LTarget: TStringList;
+begin
+  LTarget := TStringList.Create;
+  try
+    LHealthy := UniqueName;
+    TLoggerAdapterRegistry.Instance.RegisterFactory(
+      TThrowingAdapterFactory.CreateAdapterFactory(UniqueName, False));
+    TLoggerAdapterRegistry.Instance.RegisterFactory(LHealthy,
+      TLogifyAdapterBufferFactory.CreateAdapterFactory(UniqueName, TLogLevel.Trace, LTarget));
+
+    try
+      Logger.LogInfo('this one blows up');
+    except
+      on EAdapterFailure do ;
+    end;
+
+    // Categories are independent: a broken one must not poison the others
+    TLoggerManager.GetCategoryLogger(LHealthy).LogInfo('this one must still arrive');
+
+    Assert.AreEqual(1, LTarget.Count);
+    Assert.Contains(LTarget.Text, 'this one must still arrive');
+  finally
+    LTarget.Free;
+  end;
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TLogLevelTests);
   TDUnitX.RegisterTestFixture(TLoggerTests);
   TDUnitX.RegisterTestFixture(TExceptionInfoTests);
   TDUnitX.RegisterTestFixture(TCategoryLoggerTests);
   TDUnitX.RegisterTestFixture(TRegistryTests);
+  TDUnitX.RegisterTestFixture(TAdapterFailureTests);
 
 end.
