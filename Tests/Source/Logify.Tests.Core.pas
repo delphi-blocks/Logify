@@ -56,18 +56,29 @@ type
   end;
 
   /// <summary>
-  ///   GetFullExceptionInfo, public so that adapters implementing
-  ///   ILoggerAdapter directly can render exceptions the same way
+  ///   TLoggerFormatter.FormatException, the canonical exception renderer
+  ///   every adapter uses
   /// </summary>
   [TestFixture]
   TExceptionInfoTests = class
+  private
+    FFormatter: TLoggerFormatter;
   public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
     [Test]
     procedure ANilExceptionYieldsAnEmptyString;
     [Test]
     procedure TheClassAndMessageAreReported;
     [Test]
     procedure TheInnerExceptionChainIsWalked;
+    [Test]
+    procedure EachChainMessageIsRenderedExactlyOnce;
+    [Test]
+    procedure ADeeperChainIsNested;
     [Test]
     procedure ThereIsNoTrailingLineBreak;
   end;
@@ -347,9 +358,19 @@ end;
 
 { TExceptionInfoTests }
 
+procedure TExceptionInfoTests.Setup;
+begin
+  FFormatter := TLoggerFormatter.Create;
+end;
+
+procedure TExceptionInfoTests.TearDown;
+begin
+  FFormatter.Free;
+end;
+
 procedure TExceptionInfoTests.ANilExceptionYieldsAnEmptyString;
 begin
-  Assert.AreEqual('', GetFullExceptionInfo(nil));
+  Assert.AreEqual('', FFormatter.FormatException(nil));
 end;
 
 procedure TExceptionInfoTests.TheClassAndMessageAreReported;
@@ -358,8 +379,8 @@ var
 begin
   LException := EListError.Create('the failure');
   try
-    Assert.Contains(GetFullExceptionInfo(LException), 'EListError');
-    Assert.Contains(GetFullExceptionInfo(LException), 'the failure');
+    Assert.Contains(FFormatter.FormatException(LException), 'EListError');
+    Assert.Contains(FFormatter.FormatException(LException), 'the failure');
   finally
     LException.Free;
   end;
@@ -377,12 +398,66 @@ begin
     end;
   except
     on E: Exception do
-      LInfo := GetFullExceptionInfo(E);
+      LInfo := FFormatter.FormatException(E);
   end;
 
   Assert.Contains(LInfo, 'the outer failure');
-  Assert.Contains(LInfo, '--- Caused by');
+  Assert.Contains(LInfo, 'Caused by:');
   Assert.Contains(LInfo, 'the root cause');
+  // The exact layout: head line "Class: message", then "Caused by: Class: message"
+  Assert.Contains(LInfo, 'EListError: the outer failure');
+  Assert.Contains(LInfo, 'Caused by: Exception: the root cause');
+end;
+
+procedure TExceptionInfoTests.EachChainMessageIsRenderedExactlyOnce;
+var
+  LInfo: string;
+begin
+  try
+    try
+      raise Exception.Create('the root cause');
+    except
+      Exception.RaiseOuterException(EListError.Create('the outer failure'));
+    end;
+  except
+    on E: Exception do
+      LInfo := FFormatter.FormatException(E);
+  end;
+
+  // Exception.ToString() flattens the inner chain into the message, which
+  // would duplicate every inner message; the renderer must use Message so
+  // each one appears exactly once, in its own entry, nested under its cause
+  Assert.AreEqual(
+    'EListError: the outer failure' + sLineBreak +
+    '  └── Caused by: Exception: the root cause',
+    LInfo);
+end;
+
+procedure TExceptionInfoTests.ADeeperChainIsNested;
+var
+  LInfo: string;
+begin
+  try
+    try
+      try
+        raise Exception.Create('the root cause');
+      except
+        Exception.RaiseOuterException(EArgumentException.Create('a middle layer failed'));
+      end;
+    except
+      Exception.RaiseOuterException(EListError.Create('the operation failed'));
+    end;
+  except
+    on E: Exception do
+      LInfo := FFormatter.FormatException(E);
+  end;
+
+  // Every cause hangs one CAUSE_STEP (7) deeper than the entry above it
+  Assert.AreEqual(
+    'EListError: the operation failed' + sLineBreak +
+    '  └── Caused by: EArgumentException: a middle layer failed' + sLineBreak +
+    '         └── Caused by: Exception: the root cause',
+    LInfo);
 end;
 
 procedure TExceptionInfoTests.ThereIsNoTrailingLineBreak;
@@ -392,7 +467,7 @@ var
 begin
   LException := Exception.Create('the failure');
   try
-    LInfo := GetFullExceptionInfo(LException);
+    LInfo := FFormatter.FormatException(LException);
   finally
     LException.Free;
   end;

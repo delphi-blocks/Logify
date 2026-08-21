@@ -108,6 +108,39 @@ type
     procedure NoExceptionInfoIsAppendedWithoutAnException;
   end;
 
+  /// <summary>
+  ///   TLoggerFormatter: the default layout, the overridable virtual hooks,
+  ///   the swap point on TLoggerAdapterHelper.Formatter and the
+  ///   registry-wide default formatter class
+  /// </summary>
+  [TestFixture]
+  TFormatterTests = class(TBufferedAdapterFixture)
+  private
+    function Helper: TLoggerAdapterHelper;
+  public
+    [Setup]
+    procedure Setup; override;
+
+    [Test]
+    procedure TheDefaultFormatterProducesTheStandardLayout;
+    [Test]
+    procedure SwappingTheFormatterChangesTheDatePiece;
+    [Test]
+    procedure OverridingFormatClassNameChangesOnlyTheClassName;
+    [Test]
+    procedure OverridingFormatExceptionChangesTheExceptionBlock;
+    [Test]
+    procedure AssigningNilResetsToTheDefaultFormatter;
+    [Test]
+    procedure AFormatterRendersStandaloneForDirectAdapters;
+    [Test]
+    procedure TheHeaderAndSeparatorKeepTheirDefaultShape;
+    [Test]
+    procedure AFormatMsgOverrideReplacesTheWholeLayout;
+    [Test]
+    procedure TheRegistryFormatterClassAppliesToNewAdapters;
+  end;
+
 implementation
 
 uses
@@ -346,7 +379,7 @@ begin
   end;
 
   Assert.Contains(FTarget.Text, 'the outer failure');
-  Assert.Contains(FTarget.Text, '--- Caused by');
+  Assert.Contains(FTarget.Text, 'Caused by:');
   Assert.Contains(FTarget.Text, 'the root cause');
 end;
 
@@ -358,9 +391,202 @@ begin
   Assert.AreEqual(1, FTarget.Count);
 end;
 
+{ Test formatters }
+
+type
+  /// <summary>
+  ///   Formatter that pins the date to a fixed marker, so a test can prove
+  ///   the adapter really used the swapped formatter.
+  /// </summary>
+  TDateMarkerFormatter = class(TLoggerFormatter)
+  protected
+    function FormatDate: string; override;
+  end;
+
+  /// <summary>
+  ///   Formatter that renders any exception with a fixed marker, proving
+  ///   FormatException is the override point for exception rendering.
+  /// </summary>
+  TExceptionMarkerFormatter = class(TLoggerFormatter)
+  protected
+    function FormatException(E: Exception): string; override;
+  end;
+
+  /// <summary>
+  ///   Formatter that uppercases the class name, proving a single small hook
+  ///   can be overridden without touching the rest of the line.
+  /// </summary>
+  TClassNameUpperFormatter = class(TLoggerFormatter)
+  protected
+    function FormatClassName(const AClassName: string): string; override;
+  end;
+
+  /// <summary>
+  ///   Formatter that replaces the whole line layout, proving FormatMsg is
+  ///   the override point for a complete custom layout.
+  /// </summary>
+  TLayoutReplacingFormatter = class(TLoggerFormatter)
+  public
+    function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; override;
+  end;
+
+function TDateMarkerFormatter.FormatDate: string;
+begin
+  Result := '2024-01-01T00:00:00';
+end;
+
+function TExceptionMarkerFormatter.FormatException(E: Exception): string;
+begin
+  Result := 'EXCEPTION-RENDERED';
+end;
+
+function TClassNameUpperFormatter.FormatClassName(const AClassName: string): string;
+begin
+  Result := inherited FormatClassName(AClassName).ToUpper;
+end;
+
+function TLayoutReplacingFormatter.FormatMsg(const AMessage, AClassName: string;
+    AException: Exception; ALevel: TLogLevel): string;
+begin
+  Result := '[' + ALevel.ToString + '] ' + AMessage;
+end;
+
+{ TFormatterTests }
+
+function TFormatterTests.Helper: TLoggerAdapterHelper;
+begin
+  Result := FAdapter as TLoggerAdapterHelper;
+end;
+
+procedure TFormatterTests.Setup;
+begin
+  inherited;
+  UseLevel(TLogLevel.Trace);
+end;
+
+procedure TFormatterTests.TheDefaultFormatterProducesTheStandardLayout;
+begin
+  FAdapter.WriteLog('Demo.TfrmMain', 'the payload', nil, TLogLevel.Warning);
+
+  Assert.Contains(FTarget[0], 'WARNING');
+  Assert.Contains(FTarget[0], '[TfrmMain]');
+  Assert.Contains(FTarget[0], 'the payload');
+end;
+
+procedure TFormatterTests.SwappingTheFormatterChangesTheDatePiece;
+begin
+  Helper.Formatter := TDateMarkerFormatter.Create;
+
+  FAdapter.WriteLog('', 'dated', nil, TLogLevel.Info);
+
+  Assert.Contains(FTarget[0], '2024-01-01T00:00:00');
+end;
+
+procedure TFormatterTests.OverridingFormatClassNameChangesOnlyTheClassName;
+begin
+  Helper.Formatter := TClassNameUpperFormatter.Create;
+
+  FAdapter.WriteLog('Demo.TfrmMain', 'classed', nil, TLogLevel.Info);
+
+  Assert.Contains(FTarget[0], '[TFRMMAIN]');
+end;
+
+procedure TFormatterTests.OverridingFormatExceptionChangesTheExceptionBlock;
+var
+  LException: Exception;
+begin
+  Helper.Formatter := TExceptionMarkerFormatter.Create;
+
+  LException := EListError.Create('details go here');
+  try
+    FAdapter.WriteLog('', 'failed', LException, TLogLevel.Error);
+  finally
+    LException.Free;
+  end;
+
+  Assert.Contains(FTarget[0], 'EXCEPTION-RENDERED');
+  Assert.DoesNotContain(FTarget[0], 'details go here');
+end;
+
+procedure TFormatterTests.AssigningNilResetsToTheDefaultFormatter;
+begin
+  Helper.Formatter := TDateMarkerFormatter.Create;
+  Helper.Formatter := nil;
+
+  FAdapter.WriteLog('', 'undated', nil, TLogLevel.Info);
+
+  Assert.DoesNotContain(FTarget[0], '2024-01-01T00:00:00');
+end;
+
+procedure TFormatterTests.AFormatterRendersStandaloneForDirectAdapters;
+var
+  LFormatter: TLoggerFormatter;
+  LLine: string;
+begin
+  // Route-2 adapters (implementing ILoggerAdapter directly) can render with a
+  // formatter of their own, without inheriting TLoggerAdapterHelper
+  LFormatter := TLoggerFormatter.Create;
+  try
+    // Note the argument order: FormatMsg takes (AMessage, AClassName),
+    // the reverse of WriteLog
+    LLine := LFormatter.FormatMsg('solo', 'Demo.TfrmMain', nil, TLogLevel.Error);
+  finally
+    LFormatter.Free;
+  end;
+
+  Assert.Contains(LLine, '[TfrmMain]');
+  Assert.Contains(LLine, 'ERROR');
+  Assert.Contains(LLine, 'solo');
+end;
+
+procedure TFormatterTests.TheHeaderAndSeparatorKeepTheirDefaultShape;
+var
+  LFormatter: TLoggerFormatter;
+begin
+  LFormatter := TLoggerFormatter.Create;
+  try
+    Assert.AreEqual(60, Length(LFormatter.FormatSeparator));
+    Assert.AreEqual('=', LFormatter.FormatSeparator[1]);
+    Assert.Contains(LFormatter.FormatHeader, 'DATE');
+    Assert.Contains(LFormatter.FormatHeader, 'MESSAGE');
+  finally
+    LFormatter.Free;
+  end;
+end;
+
+procedure TFormatterTests.AFormatMsgOverrideReplacesTheWholeLayout;
+begin
+  Helper.Formatter := TLayoutReplacingFormatter.Create;
+
+  FAdapter.WriteLog('Demo.TfrmMain', 'solo', nil, TLogLevel.Error);
+
+  Assert.AreEqual('[ERROR] solo', FTarget[0]);
+end;
+
+procedure TFormatterTests.TheRegistryFormatterClassAppliesToNewAdapters;
+var
+  LFactory: ILoggerAdapterFactory;
+  LAdapter: ILoggerAdapter;
+begin
+  // The helper builds its formatter through the registry, so a formatter
+  // class installed here reaches adapters created afterwards
+  TLoggerAdapterRegistry.Instance.FormatterClass := TDateMarkerFormatter;
+  try
+    LFactory := TLogifyAdapterBufferFactory.CreateAdapterFactory(UniqueName, TLogLevel.Trace, FTarget);
+    LAdapter := LFactory.CreateLoggerAdapter;
+    LAdapter.WriteLog('', 'dated', nil, TLogLevel.Info);
+  finally
+    TLoggerAdapterRegistry.Instance.FormatterClass := TLoggerFormatter;
+    LAdapter := nil;
+  end;
+
+  Assert.Contains(FTarget[0], '2024-01-01T00:00:00');
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TLevelFilteringTests);
   TDUnitX.RegisterTestFixture(TFactoryLevelTests);
   TDUnitX.RegisterTestFixture(TFormattingTests);
+  TDUnitX.RegisterTestFixture(TFormatterTests);
 
 end.

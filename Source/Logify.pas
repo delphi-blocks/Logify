@@ -124,6 +124,73 @@ type
   TLoggerAdapterFactoryClass = class of TLoggerAdapterFactory;
 
   /// <summary>
+  ///   Default rendering of a log line: the layout constants and the small
+  ///   pieces (date, thread id, class name, level, exception info) that
+  ///   compose into it.
+  ///
+  ///   Every piece is a virtual method, so a formatter subclass changes only
+  ///   the piece it cares about instead of re-implementing the whole line:
+  ///   override one hook for a small change, or FormatMsg to replace the
+  ///   layout entirely. Register the subclass either on a single adapter
+  ///   (TLoggerAdapterHelper.Formatter) or for every adapter created
+  ///   afterwards (TLoggerAdapterRegistry.FormatterClass). Rendering goes
+  ///   through plain virtual dispatch — no per-line allocation — so the hot
+  ///   path stays lean. TLoggerAdapterHelper owns one instance per adapter;
+  ///   adapters that implement ILoggerAdapter directly can create one on
+  ///   their own.
+  /// </summary>
+  TLoggerFormatter = class
+  public const
+    //Date ThreadID [ClassName] Level | Message
+    LOG_TEMPLATE = '%s %s [%s] %s | %s';
+    LOG_LINE_SEP = '=';
+  protected
+    /// <summary>
+    ///   Timestamp shown at the start of the line. Defaults to the current
+    ///   date in ISO8601 format.
+    /// </summary>
+    function FormatDate: string; virtual;
+    /// <summary>
+    ///   Id of the thread that issued the log call.
+    /// </summary>
+    function FormatThreadID: string; virtual;
+    /// <summary>
+    ///   Class name shown between square brackets: an empty name becomes
+    ///   'default', a qualified name keeps only the part after the last dot.
+    /// </summary>
+    function FormatClassName(const AClassName: string): string; virtual;
+    /// <summary>
+    ///   Level name (TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL, OFF).
+    /// </summary>
+    function FormatLevel(ALevel: TLogLevel): string; virtual;
+    /// <summary>
+    ///   Message body: the message itself, plus the rendered exception block
+    ///   when an exception is present.
+    /// </summary>
+    function FormatMessage(const AMessage: string; AException: Exception): string; virtual;
+  public
+    /// <summary>
+    ///   Renders the whole log line (LOG_TEMPLATE). Override it to replace
+    ///   the layout entirely; override one of the smaller hooks above to
+    ///   change a single piece.
+    /// </summary>
+    function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; virtual;
+    /// <summary>
+    ///   Full text of an exception: class, message, stack trace and the whole
+    ///   InnerException chain, each cause nested under the entry that raised
+    ///   it. This is the canonical renderer: override it to render exceptions
+    ///   differently everywhere this formatter is used, or call it directly
+    ///   from an adapter that implements ILoggerAdapter without inheriting
+    ///   the helper. A nil exception yields an empty string.
+    /// </summary>
+    function FormatException(E: Exception): string; virtual;
+    function FormatHeader: string; virtual;
+    function FormatSeparator: string; virtual;
+  end;
+
+  TLoggerFormatterClass = class of TLoggerFormatter;
+
+  /// <summary>
   ///   Utility class for a logger implementing the ILogger interface.
   ///
   ///   This class is useful only il the final logger lacks formatting
@@ -134,11 +201,20 @@ type
   /// </summary>
   TLoggerAdapterHelper = class(TInterfacedObject, ILoggerAdapter)
   public const
-    //Date ThreadID [ClassName] Level | Message
-    LOG_TEMPLATE = '%s %s [%s] %s | %s';
-    LOG_LINE_SEP = '=';
+    // Kept for backward compatibility: the layout now lives in TLoggerFormatter
+    LOG_TEMPLATE = TLoggerFormatter.LOG_TEMPLATE;
+    LOG_LINE_SEP = TLoggerFormatter.LOG_LINE_SEP;
+  private
+    procedure InitializeFormatter;
   protected
     FLevel: TLogLevel;
+    FFormatter: TLoggerFormatter;
+    function GetFormatter: TLoggerFormatter;
+    procedure SetFormatter(const AFormatter: TLoggerFormatter);
+
+    // These delegate to FFormatter. They stay virtual so existing subclasses
+    // that override them keep working, but new adapters should override the
+    // formatter pieces instead (see TLoggerAdapterHelper.Formatter).
     function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; virtual;
     function FormatHeader(): string; virtual;
     function FormatSeparator(): string; virtual;
@@ -148,12 +224,24 @@ type
   public
     constructor Create; overload;
     constructor Create(ALevel: TLogLevel); overload;
+    destructor Destroy; override;
 
     // ILoggerAdapter functions
     procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
     procedure WriteRawLine(const AMessage: string; ALevel: TLogLevel);
 
     property Level: TLogLevel read FLevel write FLevel;
+
+    /// <summary>
+    ///   Formatter used to render the log lines. Defaults to a plain
+    ///   TLoggerFormatter (or to TLoggerAdapterRegistry.FormatterClass when
+    ///   one is installed). Swap it at any time: assign a subclass instance
+    ///   to customize the layout, or nil to go back to the default. The
+    ///   helper owns the formatter: it frees the previous one on assignment
+    ///   and on destruction, so assign an instance created for this adapter
+    ///   only. Configure it at startup, not while other threads are logging.
+    /// </summary>
+    property Formatter: TLoggerFormatter read GetFormatter write SetFormatter;
   end;
 
   /// <summary>
@@ -203,6 +291,13 @@ type
     ///   FLock is only worth caching if the registry did not move meanwhile.
     /// </summary>
     FVersion: Integer;
+
+    /// <summary>
+    ///   Formatter class handed to every new adapter (see FormatterClass).
+    ///   Read without the lock, like the other configuration: set it at
+    ///   startup, before the first adapter is created.
+    /// </summary>
+    FFormatterClass: TLoggerFormatterClass;
     class function GetInstance: TLoggerAdapterRegistry; static;
 
     // Must be called while holding FLock
@@ -219,6 +314,12 @@ type
   public
     constructor Create;
     destructor Destroy; override;
+
+    /// <summary>
+    ///   Creates a formatter through the configured FormatterClass. Used by
+    ///   TLoggerAdapterHelper when it builds the formatter of a new adapter.
+    /// </summary>
+    function CreateFormatter: TLoggerFormatter;
 
     procedure RegisterFactoryClass(AFactoryClass: TLoggerAdapterFactoryClass); overload;
     procedure RegisterFactoryClass(const ACategory: string; AFactoryClass: TLoggerAdapterFactoryClass); overload;
@@ -252,6 +353,15 @@ type
     function CreateLoggerAdapter(AName: string): ILoggerAdapter;
     function FindLoggerAdapter(const AName: string): ILoggerAdapter;
     function GetLoggerAdapters(const ACategory: string): TArray<ILoggerAdapter>;
+
+    /// <summary>
+    ///   Formatter class used by adapters created after it is set. Defaults
+    ///   to TLoggerFormatter. "On the fly": existing adapters keep the
+    ///   formatter they already have (change those through
+    ///   TLoggerAdapterHelper.Formatter), every adapter created afterwards
+    ///   picks up the new class.
+    /// </summary>
+    property FormatterClass: TLoggerFormatterClass read FFormatterClass write FFormatterClass;
 
     class property Instance: TLoggerAdapterRegistry read GetInstance;
   end;
@@ -289,16 +399,6 @@ const
   /// </summary>
   function Logger: ILogger;
 
-  /// <summary>
-  ///   Full text of an exception: class, message, stack trace and the whole
-  ///   InnerException chain.
-  ///
-  ///   Exposed for the adapters that implement ILoggerAdapter directly and so
-  ///   do not inherit TLoggerAdapterHelper.FormatMsg. A nil exception yields
-  ///   an empty string.
-  /// </summary>
-  function GetFullExceptionInfo(E: Exception): string;
-
 implementation
 
 uses
@@ -309,44 +409,7 @@ resourcestring
   SLoggerFactoryDuplicate = 'LoggerFactory [%s] is already registered (in category [%s]): ' +
     'every factory needs a unique name';
   SLogLevelNotValid = '[%s] is not a valid log level';
-  SCausedBy = '--- Caused by %s: %s';
-
-function GetFullExceptionInfo(E: Exception): string;
-const
-  // Guards against a self-referential or circular InnerException chain
-  MAX_INNER_DEPTH = 16;
-begin
-  var LSB := TStringBuilder.Create;
-  try
-    var LCurrent := E;
-    var LFirst := True;
-    var LDepth := 0;
-    while (LCurrent <> nil) and (LDepth < MAX_INNER_DEPTH) do
-    begin
-      if LFirst then
-      begin
-        LSB.AppendLine(LCurrent.ClassName + ': ' + LCurrent.ToString());
-        LFirst := False;
-      end
-      else
-        LSB.AppendLine(Format(SCausedBy, [LCurrent.ClassName, LCurrent.ToString()]));
-
-      // .StackTrace requires a provider (JCL, MadExcept, etc.)
-      // If no provider is installed, this remains empty.
-      if LCurrent.StackTrace <> '' then
-        LSB.AppendLine(LCurrent.StackTrace);
-
-      if LCurrent.InnerException = LCurrent then
-        Break;
-
-      LCurrent := LCurrent.InnerException;
-      Inc(LDepth);
-    end;
-    Result := LSB.ToString.TrimRight;
-  finally
-    LSB.Free;
-  end;
-end;
+  SCausedBy = 'Caused by: %s: %s';
 
 type
   /// <summary>
@@ -446,6 +509,17 @@ begin
   FLoggerAdapters := TDictionary<string, LoggerAdapterInfo>.Create;
   FCategoryCache := TDictionary<string, TArray<ILoggerAdapter>>.Create;
   FCreationGates := TObjectDictionary<string, TObject>.Create([doOwnsValues]);
+  FFormatterClass := TLoggerFormatter;
+end;
+
+function TLoggerAdapterRegistry.CreateFormatter: TLoggerFormatter;
+var
+  LClass: TLoggerFormatterClass;
+begin
+  LClass := FFormatterClass;
+  if LClass = nil then
+    LClass := TLoggerFormatter;
+  Result := LClass.Create;
 end;
 
 destructor TLoggerAdapterRegistry.Destroy;
@@ -913,19 +987,112 @@ begin
   Log(AException, AMsg, TLogLevel.Warning);
 end;
 
-{ TLoggerAdapterHelper }
+{ TLoggerFormatter }
 
-constructor TLoggerAdapterHelper.Create;
+function TLoggerFormatter.FormatDate: string;
 begin
-  FLevel := TLogLevel.Info;
+  Result := DateToISO8601(Now, False);
 end;
 
-constructor TLoggerAdapterHelper.Create(ALevel: TLogLevel);
+function TLoggerFormatter.FormatThreadID: string;
 begin
-  FLevel := ALevel;
+  Result := TThread.CurrentThread.ThreadID.ToString;
 end;
 
-function TLoggerAdapterHelper.FormatHeader: string;
+function TLoggerFormatter.FormatClassName(const AClassName: string): string;
+var
+  LIndex: Integer;
+begin
+  if AClassName = '' then
+    Exit('default');
+
+  LIndex := AClassName.LastIndexOf('.');
+  if LIndex >= 0 then
+    Result := AClassName.Substring(LIndex + 1)
+  else
+    Result := AClassName;
+end;
+
+function TLoggerFormatter.FormatLevel(ALevel: TLogLevel): string;
+begin
+  Result := ALevel.ToString;
+end;
+
+function TLoggerFormatter.FormatException(E: Exception): string;
+const
+  // Guards against a self-referential or circular InnerException chain
+  MAX_INNER_DEPTH = 16;
+  // Spaces added per nesting level, so every cause reads as a child of the
+  // entry above it
+  CAUSE_STEP = 7;
+  // Branch marker in front of every cause entry
+  CAUSE_BRANCH = '└── ';
+  // Stack frames are indented under their entry
+  STACK_INDENT = '   ';
+begin
+  var LSB := TStringBuilder.Create;
+  try
+    var LCurrent := E;
+    var LDepth := 0;
+    while (LCurrent <> nil) and (LDepth < MAX_INNER_DEPTH) do
+    begin
+      // The exception that was caught starts at column 0; every cause hangs
+      // one CAUSE_STEP deeper than the entry above it
+      var LEntryIndent := '';
+      if LDepth > 0 then
+        LEntryIndent := StringOfChar(' ', 2 + (LDepth - 1) * CAUSE_STEP);
+
+      // Message, not ToString(): Exception.ToString() flattens the whole
+      // InnerException chain into the message, which would duplicate every
+      // inner message here since the chain is walked separately
+      if LDepth = 0 then
+        LSB.AppendLine(LCurrent.ClassName + ': ' + LCurrent.Message)
+      else
+        LSB.AppendLine(LEntryIndent + CAUSE_BRANCH +
+          Format(SCausedBy, [LCurrent.ClassName, LCurrent.Message]));
+
+      // .StackTrace requires a provider (JCL, MadExcept, etc.)
+      // If no provider is installed, this remains empty.
+      if LCurrent.StackTrace <> '' then
+      begin
+        var LFrameIndent := LEntryIndent + STACK_INDENT;
+        LSB.AppendLine(LFrameIndent +
+          LCurrent.StackTrace.Replace(sLineBreak, sLineBreak + LFrameIndent));
+      end;
+
+      if LCurrent.InnerException = LCurrent then
+        Break;
+
+      LCurrent := LCurrent.InnerException;
+      Inc(LDepth);
+    end;
+    Result := LSB.ToString.TrimRight;
+  finally
+    LSB.Free;
+  end;
+end;
+
+function TLoggerFormatter.FormatMessage(const AMessage: string; AException: Exception): string;
+begin
+  if AException <> nil then
+    // Walks the whole InnerException chain, stack traces included
+    Result := AMessage + sLineBreak + FormatException(AException)
+  else
+    Result := AMessage;
+end;
+
+function TLoggerFormatter.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
+begin
+  Result := Format(LOG_TEMPLATE, [
+    FormatDate,
+    FormatThreadID,
+    FormatClassName(AClassName),
+    FormatLevel(ALevel),
+    FormatMessage(AMessage, AException)
+  ]);
+end;
+
+function TLoggerFormatter.FormatHeader: string;
 begin
   Result := Format(LOG_TEMPLATE, [
       'DATE',
@@ -936,47 +1103,76 @@ begin
     ]);
 end;
 
-function TLoggerAdapterHelper.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
-var
-  LMsg: string;
-  LClassName: string;
-  LIndex: Integer;
+function TLoggerFormatter.FormatSeparator: string;
 begin
-  if AException <> nil then
-    // Walks the whole InnerException chain, stack traces included
-    LMsg := AMessage + sLineBreak + GetFullExceptionInfo(AException)
-  else
-    LMsg := AMessage;
+  Result := StringOfChar(LOG_LINE_SEP, 60);
+end;
 
-  if AClassName = '' then
-    Result := Format(LOG_TEMPLATE, [
-      DateToISO8601(Now, False),
-      TThread.CurrentThread.ThreadID.ToString,
-      'default',
-      ALevel.ToString,
-      LMsg
-    ])
-  else
-  begin
-    LIndex := AClassName.LastIndexOf('.');
-    if LIndex >= 0 then
-      LClassName := AClassName.Substring(LIndex + 1)
-    else
-      LClassName := AClassName;
+{ TLoggerAdapterHelper }
 
-    Result := Format(LOG_TEMPLATE, [
-      DateToISO8601(Now, False),
-      TThread.CurrentThread.ThreadID.ToString,
-      LClassName,
-      ALevel.ToString,
-      LMsg
-    ]);
-  end;
+constructor TLoggerAdapterHelper.Create;
+begin
+  inherited Create;
+  FLevel := TLogLevel.Info;
+  InitializeFormatter;
+end;
+
+constructor TLoggerAdapterHelper.Create(ALevel: TLogLevel);
+begin
+  inherited Create;
+  FLevel := ALevel;
+  InitializeFormatter;
+end;
+
+destructor TLoggerAdapterHelper.Destroy;
+begin
+  FFormatter.Free;
+  inherited;
+end;
+
+procedure TLoggerAdapterHelper.InitializeFormatter;
+var
+  LRegistry: TLoggerAdapterRegistry;
+begin
+  // The registry may install a default formatter class for every new adapter;
+  // outside a registry (or after shutdown) fall back to the plain formatter.
+  LRegistry := TLoggerAdapterRegistry.Instance;
+  if Assigned(LRegistry) then
+    FFormatter := LRegistry.CreateFormatter
+  else
+    FFormatter := TLoggerFormatter.Create;
+end;
+
+function TLoggerAdapterHelper.GetFormatter: TLoggerFormatter;
+begin
+  Result := FFormatter;
+end;
+
+procedure TLoggerAdapterHelper.SetFormatter(const AFormatter: TLoggerFormatter);
+begin
+  if AFormatter = FFormatter then
+    Exit;
+  FFormatter.Free;
+  if Assigned(AFormatter) then
+    FFormatter := AFormatter
+  else
+    // Assigning nil resets the adapter to the formatter a new adapter gets
+    InitializeFormatter;
+end;
+
+function TLoggerAdapterHelper.FormatHeader: string;
+begin
+  Result := FFormatter.FormatHeader;
+end;
+
+function TLoggerAdapterHelper.FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string;
+begin
+  Result := FFormatter.FormatMsg(AMessage, AClassName, AException, ALevel);
 end;
 
 function TLoggerAdapterHelper.FormatSeparator: string;
 begin
-  Result := StringOfChar(LOG_LINE_SEP, 60);
+  Result := FFormatter.FormatSeparator;
 end;
 
 procedure TLoggerAdapterHelper.WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);

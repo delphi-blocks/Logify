@@ -10,7 +10,8 @@
 {******************************************************************************}
 
 /// <summary>
-///   Syslog types, configuration and message shaping.
+///   Syslog types, configuration and the syslog payload layout
+///   (TSyslogFormatter).
 ///
 ///   Deliberately free of any POSIX dependency: the whole mapping between
 ///   Logify and the syslog protocol lives here, so it compiles and can be
@@ -128,13 +129,24 @@ type
 
   TSyslogConfProc = reference to procedure (var AConfig: TSyslogConfig);
 
-/// <summary>
-///   Builds the syslog payload. The timestamp, host, tag and pid are added by
-///   syslog itself, so only what it cannot know is carried here: the
-///   originating class and the Logify level (which survives the collapse of
-///   Trace and Debug onto a single severity).
-/// </summary>
-function ShapeMessage(const AClassName, AMessage: string; ALevel: TLogLevel): string;
+  /// <summary>
+  ///   Syslog payload layout. The timestamp, host, tag and pid are added by
+  ///   syslog itself, so only what it cannot know is carried here: the
+  ///   originating class and the Logify level (which survives the collapse
+  ///   of Trace and Debug onto a single severity). Exceptions render through
+  ///   the inherited FormatMessage / FormatException, so the whole
+  ///   InnerException chain is carried in the payload like everywhere else.
+  ///
+  ///   This is a TLoggerFormatter, so a subclass can change one piece of the
+  ///   layout (FormatClassName, FormatLevel, ...) or the whole line.
+  /// </summary>
+  TSyslogFormatter = class(TLoggerFormatter)
+  public const
+    //[ClassName] LEVEL | Message
+    SYSLOG_TEMPLATE = '[%s] %s | %s';
+  public
+    function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; override;
+  end;
 
 /// <summary>
 ///   Cuts a payload into the records to emit, honouring SplitLines and
@@ -144,11 +156,6 @@ function SplitMessage(const AMessage: string; AMaxLength: Integer;
   ASplitLines: Boolean): TArray<string>;
 
 implementation
-
-const
-  //[ClassName] LEVEL | Message
-  SYSLOG_TEMPLATE = '[%s] %s | %s';
-  DEFAULT_CLASS = 'default';
 
 { TSyslogFacilityHelper }
 
@@ -236,25 +243,19 @@ begin
   Result := (not FAppName.IsEmpty) or (FOptions <> []);
 end;
 
-{ unit functions }
+{ TSyslogFormatter }
 
-function ShapeMessage(const AClassName, AMessage: string; ALevel: TLogLevel): string;
-var
-  LClassName: string;
-  LIndex: Integer;
+function TSyslogFormatter.FormatMsg(const AMessage, AClassName: string;
+    AException: Exception; ALevel: TLogLevel): string;
 begin
-  if AClassName.IsEmpty then
-    LClassName := DEFAULT_CLASS
-  else
-  begin
-    LIndex := AClassName.LastIndexOf('.');
-    if LIndex >= 0 then
-      LClassName := AClassName.Substring(LIndex + 1)
-    else
-      LClassName := AClassName;
-  end;
-
-  Result := Format(SYSLOG_TEMPLATE, [LClassName, ALevel.ToString, AMessage]);
+  // No timestamp or thread id: syslog records those itself. The class and
+  // level come from the inherited pieces, and FormatMessage appends the
+  // exception block (whole InnerException chain) when one is present.
+  Result := Format(SYSLOG_TEMPLATE, [
+    FormatClassName(AClassName),
+    FormatLevel(ALevel),
+    FormatMessage(AMessage, AException)
+  ]);
 end;
 
 function SplitMessage(const AMessage: string; AMaxLength: Integer;

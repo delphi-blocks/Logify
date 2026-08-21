@@ -15,7 +15,11 @@
 ///   Implements ILoggerAdapter directly instead of deriving from
 ///   TLoggerAdapterHelper: syslog does its own timestamping, tagging and
 ///   severity handling, so the helper's formatting would only duplicate what
-///   the daemon already records.
+///   the daemon already records. The payload is rendered by a
+///   TSyslogFormatter, which keeps only what the daemon cannot know — the
+///   class and the Logify level — and carries exceptions like everywhere
+///   else. Swap the Formatter property (or subclass TSyslogFormatter) to
+///   change the layout.
 ///
 ///   Compiles to an empty unit outside POSIX.
 /// </summary>
@@ -38,6 +42,9 @@ type
   private
     FConfig: TSyslogConfig;
     FOpened: Boolean;
+    FFormatter: TSyslogFormatter;
+    function GetFormatter: TSyslogFormatter;
+    procedure SetFormatter(const AFormatter: TSyslogFormatter);
     procedure OpenSession;
     procedure CloseSession;
     procedure Emit(const APayload: string; ALevel: TLogLevel);
@@ -48,6 +55,16 @@ type
     { ILoggerAdapter }
     procedure WriteLog(const AClassName, AMessage: string; AException: Exception; ALevel: TLogLevel);
     procedure WriteRawLine(const AMessage: string; ALevel: TLogLevel);
+
+    /// <summary>
+    ///   Formatter used to render the syslog payload. Defaults to a plain
+    ///   TSyslogFormatter; assign a subclass instance to customize the
+    ///   layout, or nil to go back to the default. The adapter owns the
+    ///   formatter: it frees the previous one on assignment and on
+    ///   destruction. Configure it at startup, not while other threads are
+    ///   logging.
+    /// </summary>
+    property Formatter: TSyslogFormatter read GetFormatter write SetFormatter;
   end;
 
   /// <summary>
@@ -91,13 +108,32 @@ constructor TLogifyAdapterSyslog.Create(const AConfig: TSyslogConfig);
 begin
   inherited Create;
   FConfig := AConfig;
+  FFormatter := TSyslogFormatter.Create;
   OpenSession;
 end;
 
 destructor TLogifyAdapterSyslog.Destroy;
 begin
   CloseSession;
+  FFormatter.Free;
   inherited;
+end;
+
+function TLogifyAdapterSyslog.GetFormatter: TSyslogFormatter;
+begin
+  Result := FFormatter;
+end;
+
+procedure TLogifyAdapterSyslog.SetFormatter(const AFormatter: TSyslogFormatter);
+begin
+  if AFormatter = FFormatter then
+    Exit;
+  FFormatter.Free;
+  if Assigned(AFormatter) then
+    FFormatter := AFormatter
+  else
+    // Assigning nil resets the adapter to the default layout
+    FFormatter := TSyslogFormatter.Create;
 end;
 
 procedure TLogifyAdapterSyslog.OpenSession;
@@ -141,17 +177,14 @@ end;
 
 procedure TLogifyAdapterSyslog.WriteLog(const AClassName, AMessage: string;
   AException: Exception; ALevel: TLogLevel);
-var
-  LPayload: string;
 begin
   if not FConfig.Accepts(ALevel) then
     Exit;
 
-  LPayload := ShapeMessage(AClassName, AMessage, ALevel);
-  if Assigned(AException) then
-    LPayload := LPayload + sLineBreak + GetFullExceptionInfo(AException);
-
-  Emit(LPayload, ALevel);
+  // The formatter carries the whole payload: class, level, message and the
+  // exception block (whole InnerException chain) when one is present. Note
+  // the argument order: FormatMsg takes (AMessage, AClassName).
+  Emit(FFormatter.FormatMsg(AMessage, AClassName, AException, ALevel), ALevel);
 end;
 
 procedure TLogifyAdapterSyslog.WriteRawLine(const AMessage: string; ALevel: TLogLevel);

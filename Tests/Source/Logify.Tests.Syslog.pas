@@ -95,11 +95,18 @@ type
   end;
 
   /// <summary>
-  ///   Payload shaping and record splitting
+  ///   Payload layout (TSyslogFormatter) and record splitting
   /// </summary>
   [TestFixture]
   TSyslogMessageTests = class
+  private
+    FFormatter: TSyslogFormatter;
   public
+    [Setup]
+    procedure Setup;
+    [TearDown]
+    procedure TearDown;
+
     [Test]
     procedure TheClassAndLevelAreCarriedInThePayload;
     [Test]
@@ -108,6 +115,8 @@ type
     procedure OnlyTheLastSegmentOfTheClassNameIsKept;
     [Test]
     procedure NoTimestampIsAddedBecauseSyslogAddsOne;
+    [Test]
+    procedure AnExceptionIsAppendedThroughTheFormatter;
 
     [Test]
     procedure ASingleLineStaysOneRecord;
@@ -318,11 +327,22 @@ end;
 
 { TSyslogMessageTests }
 
+procedure TSyslogMessageTests.Setup;
+begin
+  FFormatter := TSyslogFormatter.Create;
+end;
+
+procedure TSyslogMessageTests.TearDown;
+begin
+  FFormatter.Free;
+end;
+
 procedure TSyslogMessageTests.TheClassAndLevelAreCarriedInThePayload;
 var
   LPayload: string;
 begin
-  LPayload := ShapeMessage('TfrmMain', 'the message', TLogLevel.Warning);
+  // FormatMsg takes (AMessage, AClassName), the reverse of WriteLog
+  LPayload := FFormatter.FormatMsg('the message', 'TfrmMain', nil, TLogLevel.Warning);
 
   Assert.Contains(LPayload, '[TfrmMain]');
   Assert.Contains(LPayload, 'WARNING');
@@ -331,14 +351,14 @@ end;
 
 procedure TSyslogMessageTests.AnEmptyClassNameBecomesDefault;
 begin
-  Assert.Contains(ShapeMessage('', 'the message', TLogLevel.Info), '[default]');
+  Assert.Contains(FFormatter.FormatMsg('the message', '', nil, TLogLevel.Info), '[default]');
 end;
 
 procedure TSyslogMessageTests.OnlyTheLastSegmentOfTheClassNameIsKept;
 var
   LPayload: string;
 begin
-  LPayload := ShapeMessage('Demo.Form.Main.TfrmMain', 'the message', TLogLevel.Info);
+  LPayload := FFormatter.FormatMsg('the message', 'Demo.Form.Main.TfrmMain', nil, TLogLevel.Info);
 
   Assert.Contains(LPayload, '[TfrmMain]');
   Assert.DoesNotContain(LPayload, 'Demo.Form.Main');
@@ -348,11 +368,28 @@ procedure TSyslogMessageTests.NoTimestampIsAddedBecauseSyslogAddsOne;
 var
   LPayload: string;
 begin
-  LPayload := ShapeMessage('TfrmMain', 'the message', TLogLevel.Info);
+  LPayload := FFormatter.FormatMsg('the message', 'TfrmMain', nil, TLogLevel.Info);
 
-  // The helper's template starts with an ISO 8601 date; this one must not
+  // The default formatter's template starts with an ISO 8601 date; this one
+  // must not
   Assert.IsFalse(LPayload.StartsWith(FormatDateTime('yyyy', Now)),
     'syslog records the timestamp itself, repeating it wastes the line');
+end;
+
+procedure TSyslogMessageTests.AnExceptionIsAppendedThroughTheFormatter;
+var
+  LException: Exception;
+  LPayload: string;
+begin
+  LException := EListError.Create('the failure');
+  try
+    LPayload := FFormatter.FormatMsg('the operation failed', 'TfrmMain', LException, TLogLevel.Error);
+  finally
+    LException.Free;
+  end;
+
+  Assert.Contains(LPayload, 'the operation failed');
+  Assert.Contains(LPayload, 'EListError: the failure');
 end;
 
 procedure TSyslogMessageTests.ASingleLineStaysOneRecord;

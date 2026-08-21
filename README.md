@@ -299,7 +299,33 @@ protected
 end;
 ```
 
-**The backend already formats and filters** — implement `ILoggerAdapter` directly, map the levels yourself and handle `TLogLevel.Off`. Use the public `GetFullExceptionInfo` so exceptions still render the way the rest of the library renders them. This is what the Syslog, LoggerPro and QuickLogger adapters do.
+The layout comes from a `TLoggerFormatter`, which the helper owns and delegates to. It splits the line into small virtual hooks — `FormatDate`, `FormatThreadID`, `FormatClassName`, `FormatLevel`, `FormatMessage` and `FormatException` — so a formatter subclass changes only the piece it cares about instead of re-implementing the whole line:
+
+```delphi
+TMyFormatter = class(TLoggerFormatter)
+protected
+  // just the timestamp; everything else keeps the default shape
+  function FormatDate: string; override;
+  // or the exception block (the default renders the whole chain, nested)
+  function FormatException(E: Exception): string; override;
+  // or the whole line layout
+  function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; override;
+end;
+```
+
+Rendering goes through plain virtual dispatch — no per-line allocation, so the hot path stays lean. Register the formatter class on one adapter, or on the registry so every adapter created afterwards uses it:
+
+```delphi
+// one adapter: in the adapter constructor, or from app code on the helper
+Formatter := TMyFormatter.Create;   // the helper takes ownership
+
+// every adapter created from now on
+TLoggerAdapterRegistry.Instance.FormatterClass := TMyFormatter;
+```
+
+Inside an adapter the formatter is the protected `Formatter` property; from application code, reach it through `TLoggerAdapterRegistry.Instance.GetLoggerAdapters(category)` and cast to `TLoggerAdapterHelper`.
+
+**The backend already formats and filters** — implement `ILoggerAdapter` directly, map the levels yourself and handle `TLogLevel.Off`. Render through a `TLoggerFormatter` (or subclass) and call `FormatMsg` / `FormatException` yourself, so exceptions and the layout stay consistent with the rest of the library — this is what the Syslog adapter does with `TSyslogFormatter`. This is what the Syslog, LoggerPro and QuickLogger adapters do.
 
 Either way, ship a factory next to it:
 
@@ -317,7 +343,7 @@ end;
 * Windows (32 and 64 bit) and Linux 64 bit. Every unit in `Source` compiles for both: the platform specific pieces sit behind `{$IFDEF}`.
 * No third party dependency, except for the two adapters under `Source/Extra`.
 
-`Packages/Logify.dproj` builds the runtime package. The demos and the tests reference the sources directly through their search path, so nothing has to be installed to try them.
+`Packages/Logify.dproj` builds the runtime package. The demos and the tests reference the sources directly through their search path, so nothing has to be installed to try them. `Demos/Format` is a console demo of the formatting features: the default layout, exceptions with `InnerException` chains, a custom formatter overriding one hook and one overriding the whole line, and the registry-wide `FormatterClass`.
 
 ## Tests ✅
 

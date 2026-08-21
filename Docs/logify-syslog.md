@@ -254,7 +254,7 @@ Syslog already records the **timestamp**, the **host**, the **tag** and the **pi
 
 The class name is the one you passed to `TLoggerManager.GetLogger`, shortened to its last dotted segment — `Demo.Form.Main.TfrmMain` becomes `TfrmMain`. When there is no class, it reads `[default]`.
 
-This is the one place where the syslog adapter deliberately differs from the other adapters, which use the full `TLoggerAdapterHelper` layout with an ISO 8601 timestamp and the thread id.
+This is the one place where the syslog adapter deliberately differs from the other adapters, which use the full `TLoggerAdapterHelper` layout with an ISO 8601 timestamp and the thread id. The payload is rendered by `TSyslogFormatter` (a `TLoggerFormatter` subclass in `Logify.Syslog`): subclass it to change one piece of the layout, or swap the adapter's `Formatter` property.
 
 ## Exceptions
 
@@ -271,7 +271,7 @@ end;
 
 With `SplitLines` on, each line of that becomes its own record, all at the priority of the original call.
 
-The text comes from `GetFullExceptionInfo`, which is public in `Logify.pas`, so an adapter you write yourself can render exceptions identically.
+The text is rendered by `TSyslogFormatter` through the inherited `FormatException`, the canonical renderer, so an adapter you write yourself can render exceptions identically.
 
 ## Raw lines
 
@@ -470,7 +470,10 @@ TSyslogConfig = record
   property UseLogMask: Boolean;
 end;
 
-function ShapeMessage(const AClassName, AMessage: string; ALevel: TLogLevel): string;
+TSyslogFormatter = class(TLoggerFormatter)
+  function FormatMsg(const AMessage, AClassName: string; AException: Exception; ALevel: TLogLevel): string; override;
+end;
+
 function SplitMessage(const AMessage: string; AMaxLength: Integer;
   ASplitLines: Boolean): TArray<string>;
 
