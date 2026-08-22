@@ -1,4 +1,4 @@
-{******************************************************************************}
+﻿{******************************************************************************}
 {                                                                              }
 {  Logify: Metalogger for Delphi                                               }
 {                                                                              }
@@ -1024,7 +1024,7 @@ const
   MAX_INNER_DEPTH = 16;
   // Spaces added per nesting level, so every cause reads as a child of the
   // entry above it
-  CAUSE_STEP = 7;
+  CAUSE_STEP = 5;
   // Branch marker in front of every cause entry
   CAUSE_BRANCH = '└── ';
   // Stack frames are indented under their entry
