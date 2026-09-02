@@ -191,8 +191,9 @@ The registry is thread safe, and adapters are created exactly once however many 
 | Syslog | `Logify.Adapter.Syslog` | the local syslog daemon, on Linux |
 | LoggerPro | `Source/Extra/Logify.Adapter.LoggerPro` | [LoggerPro](https://github.com/danieleteti/loggerpro) |
 | QuickLogger | `Source/Extra/Logify.Adapter.QuickLogger` | [QuickLogger](https://github.com/exilon/QuickLogger) |
+| DX.Logger | `Source/Extra/Logify.Adapter.DXLogger` | [DX.Logger](https://github.com/omonien/DX.Logger) and its providers (text file, Seq, UI) |
 
-The two adapters under `Source/Extra` are not part of the runtime package: they need their third party library on the search path, so add them to your project directly.
+The adapters under `Source/Extra` are not part of the runtime package: they need their third party library on the search path, so add them to your project directly.
 
 Adapters with more than a level to configure take an anonymous configuration method:
 
