@@ -1,4 +1,4 @@
-﻿{******************************************************************************}
+{******************************************************************************}
 {                                                                              }
 {  Logify: Metalogger for Delphi                                               }
 {                                                                              }
@@ -1025,8 +1025,10 @@ const
   // Spaces added per nesting level, so every cause reads as a child of the
   // entry above it
   CAUSE_STEP = 5;
-  // Branch marker in front of every cause entry
-  CAUSE_BRANCH = '└── ';
+  // Branch marker in front of every cause entry: U+2514 U+2500 U+2500, written
+  // as code points because this file carries no BOM and the compiler would
+  // otherwise read the literal with the ANSI code page
+  CAUSE_BRANCH = #$2514#$2500#$2500' ';
   // Stack frames are indented under their entry
   STACK_INDENT = '   ';
 begin

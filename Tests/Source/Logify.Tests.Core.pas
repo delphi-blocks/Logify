@@ -358,6 +358,12 @@ end;
 
 { TExceptionInfoTests }
 
+const
+  // TLoggerFormatter.CAUSE_BRANCH, written as code points on purpose: this
+  // file carries no BOM, so a literal '..' here would be read with the ANSI
+  // code page and never match what the (BOM carrying) Logify.pas produces
+  CAUSE_BRANCH = #$2514#$2500#$2500' ';
+
 procedure TExceptionInfoTests.Setup;
 begin
   FFormatter := TLoggerFormatter.Create;
@@ -429,7 +435,7 @@ begin
   // each one appears exactly once, in its own entry, nested under its cause
   Assert.AreEqual(
     'EListError: the outer failure' + sLineBreak +
-    '  └── Caused by: Exception: the root cause',
+    '  ' + CAUSE_BRANCH + 'Caused by: Exception: the root cause',
     LInfo);
 end;
 
@@ -452,11 +458,12 @@ begin
       LInfo := FFormatter.FormatException(E);
   end;
 
-  // Every cause hangs one CAUSE_STEP (7) deeper than the entry above it
+  // Every cause hangs one CAUSE_STEP (5) deeper than the entry above it:
+  // the first cause at 2 spaces, the next at 2 + 5
   Assert.AreEqual(
     'EListError: the operation failed' + sLineBreak +
-    '  └── Caused by: EArgumentException: a middle layer failed' + sLineBreak +
-    '         └── Caused by: Exception: the root cause',
+    '  ' + CAUSE_BRANCH + 'Caused by: EArgumentException: a middle layer failed' + sLineBreak +
+    '       ' + CAUSE_BRANCH + 'Caused by: Exception: the root cause',
     LInfo);
 end;
 

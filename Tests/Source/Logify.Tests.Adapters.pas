@@ -19,6 +19,7 @@ uses
   Logify.Adapter.Buffer,
   Logify.Adapter.Console,
   Logify.Adapter.Debug,
+  Logify.Adapter.Error,
   Logify.Adapter.Files;
 
 type
@@ -75,6 +76,8 @@ type
     procedure DebugFactoryPropagatesTheLevel;
     [Test]
     procedure ConsoleFactoryPropagatesTheLevel;
+    [Test]
+    procedure ErrorFactoryPropagatesTheLevel;
     [Test]
     procedure BufferFactoryPropagatesTheLevel;
     [Test]
@@ -266,6 +269,15 @@ begin
   LFactory := TLogifyAdapterConsoleFactory.CreateAdapterFactory(UniqueName, TLogLevel.Critical);
 
   Assert.AreEqual(Ord(TLogLevel.Critical), Ord(LevelOf(LFactory.CreateLoggerAdapter)));
+end;
+
+procedure TFactoryLevelTests.ErrorFactoryPropagatesTheLevel;
+var
+  LFactory: ILoggerAdapterFactory;
+begin
+  LFactory := TLogifyAdapterErrorFactory.CreateAdapterFactory(UniqueName, TLogLevel.Warning);
+
+  Assert.AreEqual(Ord(TLogLevel.Warning), Ord(LevelOf(LFactory.CreateLoggerAdapter)));
 end;
 
 procedure TFactoryLevelTests.BufferFactoryPropagatesTheLevel;

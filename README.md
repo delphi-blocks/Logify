@@ -186,6 +186,7 @@ The registry is thread safe, and adapters are created exactly once however many 
 | --- | --- | --- |
 | Console | `Logify.Adapter.Console` | the console (allocating one on Windows if needed) |
 | Debug | `Logify.Adapter.Debug` | `OutputDebugString` on Windows, `stderr` on POSIX |
+| Error | `Logify.Adapter.Error` | the standard error stream, one write per line, redirectable with `2>` |
 | Files | `Logify.Adapter.Files` | a file, optionally rotating, written by a background thread |
 | Buffer | `Logify.Adapter.Buffer` | a `TStrings` (a memo, a list box) or an internal buffer |
 | Syslog | `Logify.Adapter.Syslog` | the local syslog daemon, on Linux |

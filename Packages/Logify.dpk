@@ -38,6 +38,7 @@ contains
   Logify.Adapter.Buffer in '..\source\Logify.Adapter.Buffer.pas',
   Logify.Adapter.Console in '..\source\Logify.Adapter.Console.pas',
   Logify.Adapter.Debug in '..\source\Logify.Adapter.Debug.pas',
+  Logify.Adapter.Error in '..\source\Logify.Adapter.Error.pas',
   Logify.Adapter.Files in '..\source\Logify.Adapter.Files.pas',
   Logify.Syslog in '..\source\Logify.Syslog.pas',
   Logify.Adapter.Syslog in '..\source\Logify.Adapter.Syslog.pas',

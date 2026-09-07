@@ -17,7 +17,8 @@ program DemoConsole;
 uses
   System.SysUtils, System.Classes,
   Logify,
-  Logify.Adapter.Console;
+  Logify.Adapter.Console,
+  Logify.Adapter.Error;
 
 procedure Thread1Proc;
 begin
@@ -32,10 +33,28 @@ begin
 end;
 
 begin
+  // Everything from Info up goes to stdout...
   TLoggerAdapterRegistry.Instance.RegisterFactory(
     TLogifyAdapterConsoleFactory.CreateAdapterFactory('Console log', TLogLevel.Info));
+
+  // ...while warnings and above are duplicated on stderr, so they can be
+  // separated from the program output: DemoConsole.exe 2> errors.log
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TLogifyAdapterErrorFactory.CreateAdapterFactory('Error log', TLogLevel.Warning));
   try
     Logger.LogInfo('Hello, console!');
+
+    // Below the stderr adapter level: this line only shows up on stdout
+    Logger.LogInfo('Starting the worker threads');
+    // At or above it: shown twice, once per stream
+    Logger.LogWarning('This one goes to stdout *and* to stderr');
+    try
+      raise Exception.Create('Something went wrong');
+    except
+      on E: Exception do
+        Logger.LogError(E, 'And so does the exception below');
+    end;
+
     var th1 := TThread.CreateAnonymousThread(Thread1Proc);
     var th2 := TThread.CreateAnonymousThread(Thread2Proc);
     th1.Start;

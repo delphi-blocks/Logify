@@ -121,6 +121,7 @@
         <DCCReference Include="..\source\Logify.Adapter.Buffer.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Console.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Debug.pas"/>
+        <DCCReference Include="..\source\Logify.Adapter.Error.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Files.pas"/>
         <DCCReference Include="..\source\Logify.Syslog.pas"/>
         <DCCReference Include="..\source\Logify.Adapter.Syslog.pas"/>

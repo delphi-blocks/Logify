@@ -123,6 +123,7 @@
         </DelphiCompile>
         <DCCReference Include="Source\Logify.Tests.Core.pas"/>
         <DCCReference Include="Source\Logify.Tests.Adapters.pas"/>
+        <DCCReference Include="Source\Logify.Tests.Error.pas"/>
         <DCCReference Include="Source\Logify.Tests.Concurrency.pas"/>
         <DCCReference Include="Source\Logify.Tests.Syslog.pas"/>
         <DCCReference Include="Source\Logify.Tests.Files.pas"/>
