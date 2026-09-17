@@ -125,6 +125,44 @@ TLogLevel = (Trace, Debug, Info, Warning, Error, Critical, Off);
 
 The order is meaningful: an adapter configured at `Warning` drops everything below it. `Off` is never written by anybody.
 
+## Getting started 🚀
+
+Two steps: configure the adapters once, at startup, then log from anywhere.
+
+```delphi
+program MyApp;
+
+uses
+  Logify,
+  Logify.Adapter.Files;
+
+begin
+  // everything the application logs from now on ends up in a file
+  TLoggerAdapterRegistry.Instance.RegisterFactory(
+    TLogifyAdapterFilesFactory.CreateAdapterFactory(
+      TFileLogConfig.NewSingle(TLogLevel.Debug)));
+
+  Logger.LogInfo('application started');
+  Logger.LogWarning('the queue is %d%% full', [92]);
+
+  try
+    DoSomething;
+  except
+    on E: Exception do
+      Logger.LogError(E, 'DoSomething failed');
+  end;
+end.
+```
+
+With the defaults of `NewSingle` the lines land in `.\logs\MyApp.log` — the executable's name, appended to across runs — and are written by a background thread, so logging never waits for the disk:
+
+```
+2026-09-17T09:14:03.128 7412 [default] INFO | application started
+2026-09-17T09:14:03.131 7412 [default] WARNING | the queue is 92% full
+```
+
+The rest of the application only ever calls `Logger`, exactly as above: it never sees `Logify.Adapter.Files`, and it goes on compiling and running if that registration is removed, writing nowhere.
+
 ## Getting a logger 🪝
 
 The quickest way is the global `Logger` function, which logs to the `default` category:
@@ -149,7 +187,7 @@ A category is an independent group of adapters. Register a factory under a categ
 
 ```delphi
 TLoggerAdapterRegistry.Instance.RegisterFactory('audit',
-  TLogifyAdapterFilesFactory.CreateAdapterFactory('audit-file', AConfig));
+  TLogifyAdapterFilesFactory.CreateAdapterFactory(AConfig));
 
 FAudit := TLoggerManager.GetCategoryLogger<TfrmMain>('audit');
 FAudit.LogInfo('user signed in');   // only the audit adapters see this
@@ -157,23 +195,35 @@ FAudit.LogInfo('user signed in');   // only the audit adapters see this
 
 `GetCategoryLogger` comes in the same four shapes as `GetLogger`: bare, by `TClass`, by class name and generic. The category always comes first.
 
+> ⚠️ **The global `Logger` and `TLoggerManager.GetLogger` are bound to the `default` category**, so they never see the adapters of another one. A factory registered under `'audit'` is only reached through `GetCategoryLogger('audit')`; logging to `Logger` instead writes nowhere, silently — an unknown or empty category is not an error, it is the "no adapter, no work" case the library is built around. If lines fail to appear, check the category before anything else.
+
 ## Registering adapters 🔌
 
 ```delphi
-// default category
 TLoggerAdapterRegistry.Instance.RegisterFactory(
-  TLogifyAdapterConsoleFactory.CreateAdapterFactory('console', TLogLevel.Info));
+  TLogifyAdapterConsoleFactory.CreateAdapterFactory(TLogLevel.Info));
 
-// a named category
-TLoggerAdapterRegistry.Instance.RegisterFactory('audit', AFactory);
+TLoggerAdapterRegistry.Instance.RegisterFactory(
+  TLogifyAdapterFilesFactory.CreateAdapterFactory(AConfig));
+```
+
+That is all most applications need. Every factory carries a **name**, its identity in the registry and the key under which the adapter built from it is cached; left out, it defaults to the factory's class name — `'TLogifyAdapterConsoleFactory'` and `'TLogifyAdapterFilesFactory'` above.
+
+A name has to be given when that default would not be unique, because the name has to be unique across the whole registry: registering the same factory class twice without one raises `ELogifyException` rather than a bare dictionary error. It is also what you need to unregister or look up one particular adapter. So two log files, for instance, are two named factories:
+
+```delphi
+TLoggerAdapterRegistry.Instance.RegisterFactory(
+  TLogifyAdapterFilesFactory.CreateAdapterFactory('app-file', AAppConfig));
+
+TLoggerAdapterRegistry.Instance.RegisterFactory(
+  TLogifyAdapterFilesFactory.CreateAdapterFactory('audit-file', AAuditConfig));
 ```
 
 The registry can also be taken apart again, which matters for tests and for applications that reconfigure logging at runtime:
 
 ```delphi
-TLoggerAdapterRegistry.Instance.UnregisterFactory('console');  // by name, or by factory
-TLoggerAdapterRegistry.Instance.UnregisterCategory('audit');   // a whole category
-TLoggerAdapterRegistry.Instance.Clear;                         // everything
+TLoggerAdapterRegistry.Instance.UnregisterFactory('app-file');  // by name, or by factory
+TLoggerAdapterRegistry.Instance.Clear;                          // everything
 ```
 
 Unregistering also drops the adapter cached for that factory, so registering the same name again builds a fresh one. Releasing an adapter runs its destructor, which is how a file logger stops its threads and a syslog adapter closes its session.
